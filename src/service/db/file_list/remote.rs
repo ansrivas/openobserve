@@ -16,7 +16,6 @@ use bytes::Buf;
 use futures::future::try_join_all;
 use std::io::{BufRead, BufReader};
 use tokio::sync::Semaphore;
-
 use crate::common::json;
 use crate::infra::{config::CONFIG, storage};
 use crate::meta::common::FileKey;
@@ -83,7 +82,7 @@ async fn proccess_file(file: &str) -> Result<usize, anyhow::Error> {
         let item: FileKey = json::from_slice(line.as_bytes())?;
         // check deleted files
         if item.deleted {
-            super::DELETED_FILES.insert(item.key, item.meta.to_owned());
+            super::DELETED_FILES.insert(item.key.into(), item.meta.to_owned());
             continue;
         }
         super::progress(&item.key, item.meta, item.deleted).await?;

@@ -21,7 +21,7 @@ use tonic::{codec::CompressionEncoding, metadata::MetadataValue, transport::Chan
 use tracing::{info_span, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
-
+use smartstring::alias::String;
 use crate::common::{json, str::find};
 use crate::handler::grpc::cluster_rpc;
 use crate::infra::{
@@ -168,10 +168,10 @@ async fn search_in_cluster(req: cluster_rpc::SearchRequest) -> Result<search::Re
         req.stype = cluster_rpc::SearchType::WalOnly as i32;
         let is_querier = cluster::is_querier(&node.role);
         if is_querier {
+            let files_list:Vec<std::string::String> = file_list[offset_start..min(offset_start + offset, file_num)].iter().map(|x|x.to_string()).collect();
             if offset_start < file_num {
                 req.stype = cluster_rpc::SearchType::Cluster as i32;
-                req.file_list =
-                    file_list[offset_start..min(offset_start + offset, file_num)].to_vec();
+                req.file_list = files_list;
                 offset_start += offset;
             } else if !cluster::is_ingester(&node.role) {
                 continue; // no need more querier
@@ -279,7 +279,7 @@ async fn search_in_cluster(req: cluster_rpc::SearchRequest) -> Result<search::Re
         file_count += resp.file_count;
         scan_size += resp.scan_size;
         // handle hits
-        let value = batches.entry("query".to_string()).or_default();
+        let value = batches.entry("query".into()).or_default();
         if !resp.hits.is_empty() {
             let buf = Cursor::new(resp.hits);
             let reader = ipc::reader::FileReader::try_new(buf, None).unwrap();
@@ -292,7 +292,7 @@ async fn search_in_cluster(req: cluster_rpc::SearchRequest) -> Result<search::Re
         }
         // handle aggs
         for agg in resp.aggs {
-            let value = batches.entry(format!("agg_{}", agg.name)).or_default();
+            let value = batches.entry(format!("agg_{}", agg.name).into()).or_default();
             if !agg.hits.is_empty() {
                 let buf = Cursor::new(agg.hits);
                 let reader = ipc::reader::FileReader::try_new(buf, None).unwrap();
@@ -435,7 +435,7 @@ fn handle_metrics_response(sources: Vec<json::Value>) -> Vec<json::Value> {
                 key.push(format!("{k}_{v}"));
             }
         });
-        let key = key.join("_");
+        let key:String = key.join("_").into();
         if !results_metrics.contains_key(&key) {
             let mut fields = fields.clone();
             fields.remove(&CONFIG.common.column_timestamp);
@@ -533,7 +533,7 @@ pub struct MetadataMap<'a>(pub &'a mut tonic::metadata::MetadataMap);
 
 impl<'a> opentelemetry::propagation::Injector for MetadataMap<'a> {
     /// Set a key and value in the MetadataMap.  Does nothing if the key or value are not valid inputs
-    fn set(&mut self, key: &str, value: String) {
+    fn set(&mut self, key: &str, value: std::string::String) {
         if let Ok(key) = tonic::metadata::MetadataKey::from_bytes(key.as_bytes()) {
             if let Ok(val) = tonic::metadata::MetadataValue::try_from(&value) {
                 self.0.insert(key, val);

@@ -29,6 +29,7 @@ use crate::infra::config::CONFIG;
 use crate::meta::ingestion::INGESTION_EP;
 use crate::meta::user::UserRole;
 use crate::service::{db, users};
+use smartstring::alias::String;
 
 pub async fn validator(
     req: ServiceRequest,
@@ -162,7 +163,7 @@ pub async fn validator_aws(
                 let amz_creds = common::base64::decode(val).unwrap();
                 let creds = amz_creds
                     .split(':')
-                    .map(|s| s.to_string())
+                    .map(|s| s.into())
                     .collect::<Vec<String>>();
 
                 match validate_credentials(&creds[0], &creds[1], path).await {

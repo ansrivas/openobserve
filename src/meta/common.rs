@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::json;
-
+use smartstring::alias::String;
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FileKey {
     pub key: String,
@@ -46,7 +46,7 @@ impl From<FileMeta> for Vec<u8> {
 
 impl From<FileMeta> for String {
     fn from(data: FileMeta) -> Self {
-        json::to_string(&data).unwrap()
+        json::to_string(&data).unwrap().into()
     }
 }
 
@@ -84,7 +84,7 @@ mod tests {
         let file_meta_string: String = file_meta.into();
         let file_meta_bytes: bytes::Bytes = file_meta.into();
         assert_eq!(
-            String::from_utf8(file_meta_str.clone()).unwrap(),
+            std::string::String::from_utf8(file_meta_str.clone()).unwrap(),
             file_meta_string
         );
         assert_eq!(file_meta_str, file_meta_bytes.to_vec());

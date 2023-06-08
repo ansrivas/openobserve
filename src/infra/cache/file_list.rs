@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::infra::config::RwHashMap;
+use crate::meta::{common::FileMeta, StreamType};
 use ahash::AHashMap;
 use chrono::{Datelike, Duration, TimeZone, Timelike, Utc};
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
-
-use crate::infra::config::RwHashMap;
-use crate::meta::{common::FileMeta, StreamType};
+use smartstring::alias::String;
 
 static FILES: Lazy<RwHashMap<String, OrgFilelist>> = Lazy::new(DashMap::default);
 static DATA: Lazy<RwHashMap<String, FileMeta>> = Lazy::new(DashMap::default);
@@ -49,8 +49,8 @@ pub fn set_file_to_cache(key: &str, val: FileMeta) -> Result<(), anyhow::Error> 
         .or_insert_with(AHashMap::default);
     let month_filelist = year_filelist.entry(month).or_insert_with(AHashMap::default);
     let day_filelist = month_filelist.entry(day).or_insert_with(Vec::new);
-    day_filelist.push(key.to_string());
-    DATA.insert(key.to_string(), val);
+    day_filelist.push(key.into());
+    DATA.insert(key.into(), val);
     Ok(())
 }
 
@@ -103,7 +103,7 @@ async fn scan_prefix(
     } else {
         prefix.trim_end_matches('/')
     };
-    let stream_type = stream_type.to_string();
+    let stream_type: String = stream_type.to_string().into();
     let columns = prefix.split('/').collect::<Vec<&str>>();
     let column_num = columns.len();
     let mut year = "";
@@ -141,7 +141,7 @@ async fn scan_prefix(
         for (_, year_cache) in stream_cache.iter() {
             for (_, month_cache) in year_cache.iter() {
                 for (_, day_cache) in month_cache.iter() {
-                    items.extend(day_cache.iter().map(|x| x.to_string()));
+                    items.extend(day_cache.iter().map(|x| x.clone()));
                 }
             }
         }
@@ -155,7 +155,7 @@ async fn scan_prefix(
     if month.is_empty() {
         for (_, month_cache) in year_cache.iter() {
             for (_, day_cache) in month_cache.iter() {
-                items.extend(day_cache.iter().map(|x| x.to_string()));
+                items.extend(day_cache.iter().map(|x| x.clone()));
             }
         }
         return Ok(items);
@@ -167,7 +167,7 @@ async fn scan_prefix(
     };
     if day.is_empty() {
         for (_, day_cache) in month_cache.iter() {
-            items.extend(day_cache.iter().map(|x| x.to_string()));
+            items.extend(day_cache.iter().map(|x| x.to_owned()));
         }
         return Ok(items);
     }
@@ -186,7 +186,7 @@ async fn scan_prefix(
         day_cache
             .iter()
             .filter(|x| x.starts_with(&prefix))
-            .map(|x| x.to_string()),
+            .map(|x| x.clone()),
     );
     Ok(items)
 }
@@ -284,18 +284,19 @@ pub fn shrink_to_fit() {
 pub fn get_all_organization() -> Result<Vec<String>, anyhow::Error> {
     let mut orgs = Vec::new();
     for cache in FILES.iter() {
-        orgs.push(cache.key().to_string());
+        orgs.push(cache.key().clone());
     }
     Ok(orgs)
 }
 
 pub fn get_all_stream(org_id: &str, stream_type: StreamType) -> Result<Vec<String>, anyhow::Error> {
     let org_cache = FILES.get(org_id).unwrap();
-    let type_cache = match org_cache.value().get(&stream_type.to_string()) {
+    let stream_type: String = stream_type.to_string().into();
+    let type_cache = match org_cache.value().get(&stream_type) {
         Some(cache) => cache,
         None => return Ok(vec![]),
     };
-    Ok(type_cache.keys().map(|x| x.to_string()).collect())
+    Ok(type_cache.keys().map(|x| x.clone()).collect())
 }
 
 fn parse_key_columns(key: &str) -> Result<KeyColumns, anyhow::Error> {
@@ -307,14 +308,14 @@ fn parse_key_columns(key: &str) -> Result<KeyColumns, anyhow::Error> {
             key
         ));
     }
-    let _ = columns[0].to_string();
-    let org_id = columns[1].to_string();
-    let stream_type = columns[2].to_string();
-    let stream_name = columns[3].to_string();
-    let year = columns[4].to_string();
-    let month = columns[5].to_string();
-    let day = columns[6].to_string();
-    let hour = columns[7].to_string();
+    let _: String = columns[0].into();
+    let org_id = columns[1].into();
+    let stream_type = columns[2].into();
+    let stream_name = columns[3].into();
+    let year = columns[4].into();
+    let month = columns[5].into();
+    let day = columns[6].into();
+    let hour = columns[7].into();
     Ok((org_id, stream_type, stream_name, year, month, day, hour))
 }
 

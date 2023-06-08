@@ -12,17 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ahash::AHashMap;
-use chrono::Duration;
-use datafusion::arrow::datatypes::{DataType, Schema};
-use once_cell::sync::Lazy;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fmt::{Display, Formatter},
-};
-
 use crate::common::str::find;
 use crate::handler::grpc::cluster_rpc;
 use crate::infra::{
@@ -31,6 +20,17 @@ use crate::infra::{
 };
 use crate::meta::{sql::Sql as MetaSql, stream::StreamParams, StreamType};
 use crate::service::{db, search::match_source, stream::get_stream_setting_fts_fields};
+use ahash::AHashMap;
+use chrono::Duration;
+use datafusion::arrow::datatypes::{DataType, Schema};
+use once_cell::sync::Lazy;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use smartstring::alias::String;
+use std::{
+    collections::HashMap,
+    fmt::{Display, Formatter},
+};
 
 const SQL_DELIMITERS: [u8; 12] = [
     b' ', b'*', b'(', b')', b'<', b'>', b',', b';', b'=', b'!', b'\r', b'\n',
@@ -145,7 +145,7 @@ impl Sql {
         // 3. must select group by field
         let mut req_aggs = HashMap::new();
         for agg in req.aggs.iter() {
-            req_aggs.insert(agg.name.to_string(), agg.sql.to_string());
+            req_aggs.insert(agg.name.clone(), agg.sql.clone());
         }
         if sql_mode.eq(&SqlMode::Full) && !req_aggs.is_empty() {
             return Err(Error::ErrorCode(ErrorCodes::SearchSQLNotValid(
@@ -326,7 +326,7 @@ impl Sql {
         };
 
         // HACK full text search
-        let mut fulltext = Vec::new();
+        let mut fulltext: Vec<(String, String)> = Vec::new();
         for token in &where_tokens {
             let tokens = split_sql_token_unwrap_brace(token);
             for token in &tokens {
@@ -334,10 +334,10 @@ impl Sql {
                     continue;
                 }
                 for cap in RE_MATCH_ALL.captures_iter(token) {
-                    fulltext.push((cap[0].to_string(), cap[1].to_string()));
+                    fulltext.push((cap[0].into(), cap[1].into()));
                 }
                 for cap in RE_MATCH_ALL_IGNORE_CASE.captures_iter(token) {
-                    fulltext.push((cap[0].to_string(), cap[1].to_lowercase()));
+                    fulltext.push((cap[0].into(), cap[1].to_lowercase().into()));
                 }
             }
         }
@@ -424,10 +424,10 @@ impl Sql {
                 .map(|v| v.trim().trim_matches(|v| v == '\'' || v == '"'))
                 .collect::<Vec<&str>>();
             let field = attrs.first().unwrap();
-            let interval = match attrs.get(1) {
+            let interval: String = match attrs.get(1) {
                 Some(v) => match v.parse::<u16>() {
                     Ok(v) => generate_histogram_interval(meta.time_range, v),
-                    Err(_) => v.to_string(),
+                    Err(_) => v.to_string().into(),
                 },
                 None => generate_histogram_interval(meta.time_range, 0),
             };
@@ -467,10 +467,7 @@ impl Sql {
             track_total_hits = true;
         }
         if track_total_hits {
-            req_aggs.insert(
-                "_count".to_string(),
-                String::from("SELECT COUNT(*) as num from query"),
-            );
+            req_aggs.insert("_count".into(), "SELECT COUNT(*) as num from query".into());
         }
         let mut aggs = AHashMap::new();
         for (key, sql) in &req_aggs {
@@ -515,7 +512,7 @@ impl Sql {
                 );
             }
 
-            aggs.insert(key.clone(), (sql, sql_meta.unwrap()));
+            aggs.insert(key.into(), (sql.into(), sql_meta.unwrap()));
         }
 
         let sql_meta = MetaSql::new(origin_sql.clone().as_str());
@@ -548,28 +545,28 @@ impl Sql {
         let query_fn = if req_query.query_fn.is_empty() {
             None
         } else {
-            Some(req_query.query_fn.clone())
+            Some(req_query.query_fn.clone().into())
         };
 
         let mut sql = Sql {
-            origin_sql,
-            org_id,
-            stream_name,
+            origin_sql: origin_sql.into(),
+            org_id: org_id.into(),
+            stream_name: stream_name.into(),
             meta,
-            fulltext,
+            fulltext: fulltext.into(),
             aggs,
             fields: vec![],
             sql_mode,
             schema,
-            query_context: req_query.query_context.clone(),
+            query_context: req_query.query_context.clone().into(),
             uses_zo_fn: req_query.uses_zo_fn,
-            query_fn,
+            query_fn: query_fn.into(),
         };
 
         // calculate all needs fields
         for field in schema_fields {
             if check_field_in_use(&sql, field.name()) {
-                sql.fields.push(field.name().to_string());
+                sql.fields.push(field.name().into());
             }
         }
 
@@ -633,7 +630,7 @@ fn check_field_in_use(sql: &Sql, field: &str) -> bool {
 
 fn generate_histogram_interval(time_range: Option<(i64, i64)>, num: u16) -> String {
     if time_range.is_none() || time_range.unwrap().eq(&(0, 0)) {
-        return "1 hour".to_string();
+        return "1 hour".into();
     }
     let time_range = time_range.unwrap();
     if num > 0 {
@@ -645,7 +642,8 @@ fn generate_histogram_interval(time_range: Option<(i64, i64)>, num: u16) -> Stri
                     / num as i64,
                 1
             )
-        );
+        )
+        .into();
     }
 
     let intervals = [
@@ -677,10 +675,10 @@ fn generate_histogram_interval(time_range: Option<(i64, i64)>, num: u16) -> Stri
     ];
     for interval in intervals.iter() {
         if (time_range.1 - time_range.0) >= interval.0 {
-            return interval.1.to_string();
+            return interval.1.into();
         }
     }
-    "1 second".to_string()
+    "1 second".into()
 }
 
 fn split_sql_token_unwrap_brace(s: &str) -> Vec<String> {
@@ -694,7 +692,7 @@ fn split_sql_token_unwrap_brace(s: &str) -> Vec<String> {
 }
 
 fn split_sql_token(text: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
+    let mut tokens: Vec<String> = Vec::new();
     let text_chars = text.chars().collect::<Vec<char>>();
     let text_chars_len = text_chars.len();
     let mut start_pos = 0;
@@ -727,10 +725,10 @@ fn split_sql_token(text: &str) -> Vec<String> {
                 continue;
             }
             if in_word {
-                let token = text_chars[start_pos..i].iter().collect::<String>();
+                let token = text_chars[start_pos..i].iter().collect::<std::string::String>().into();
                 tokens.push(token);
             }
-            tokens.push(String::from_utf8(vec![*c as u8]).unwrap());
+            tokens.push(std::string::String::from_utf8(vec![*c as u8]).unwrap().into());
             in_word = false;
             start_pos = i + 1;
             continue;
@@ -743,14 +741,14 @@ fn split_sql_token(text: &str) -> Vec<String> {
     if start_pos != text_chars_len {
         let token = text_chars[start_pos..text_chars_len]
             .iter()
-            .collect::<String>();
+            .collect::<std::string::String>().into();
         tokens.push(token);
     }
 
     // filter tokens by break line
     for token in tokens.iter_mut() {
         if token.eq(&"\r\n") || token.eq(&"\n") {
-            *token = " ".to_string();
+            *token = " ".into();
         }
     }
     tokens

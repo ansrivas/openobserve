@@ -25,7 +25,7 @@ use crate::meta::{
 
 pub async fn set(key: &str, meta: FileMeta, deleted: bool) -> Result<(), anyhow::Error> {
     let file_data = FileKey {
-        key: key.to_string(),
+        key: key.into(),
         meta,
         deleted,
     };
@@ -88,7 +88,7 @@ pub async fn cache() -> Result<(), anyhow::Error> {
     for item in items {
         // check deleted files
         if item.deleted {
-            super::DELETED_FILES.insert(item.key, item.meta.to_owned());
+            super::DELETED_FILES.insert(item.key.into(), item.meta.to_owned());
             continue;
         }
         super::progress(&item.key, item.meta, item.deleted).await?;

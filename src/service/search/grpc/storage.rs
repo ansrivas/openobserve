@@ -12,13 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ahash::AHashMap as HashMap;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::datasource::file_format::file_type::FileType;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
-use tracing::{info_span, Instrument};
-
 use crate::infra::cache::file_data;
 use crate::infra::config::CONFIG;
 use crate::infra::errors::{Error, ErrorCodes};
@@ -27,6 +20,13 @@ use crate::meta::common::FileMeta;
 use crate::service::search::datafusion::storage::StorageType;
 use crate::service::search::sql::Sql;
 use crate::service::{db, file_list};
+use ahash::AHashMap as HashMap;
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::datasource::file_format::file_type::FileType;
+use smartstring::alias::String;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+use tracing::{info_span, Instrument};
 
 /// search in remote object storage
 #[tracing::instrument(name = "service:search:storage:enter", skip_all)]
@@ -54,13 +54,13 @@ pub async fn search(
             Err(err) => {
                 log::error!("get schema error: {}", err);
                 return Err(Error::ErrorCode(ErrorCodes::SearchStreamNotFound(
-                    sql.stream_name.clone(),
+                    sql.stream_name.to_string(),
                 )));
             }
         };
     if schema_versions.is_empty() {
         return Err(Error::ErrorCode(ErrorCodes::SearchStreamNotFound(
-            sql.stream_name.clone(),
+            sql.stream_name.to_string(),
         )));
     }
     let schema_latest = schema_versions.last().unwrap();
@@ -77,7 +77,7 @@ pub async fn search(
                 Err(err) => {
                     log::error!("calculate files size error: {}", err);
                     return Err(Error::ErrorCode(ErrorCodes::ServerInternalError(
-                        "calculate files size error".to_string(),
+                        "calculate files size error".into(),
                     )));
                 }
             };
@@ -155,13 +155,14 @@ pub async fn search(
             storage_type: storage_type.clone(),
         };
         // cacluate the diff between latest schema and group schema
-        let mut diff_fields = HashMap::new();
+        use arrow::datatypes::DataType;
+        let mut diff_fields: HashMap<String, DataType> = HashMap::new();
         if CONFIG.common.widening_schema_evolution && ver != schema_latest_id {
             let group_fields = schema.fields();
             for field in group_fields {
                 if let Ok(v) = schema_latest.field_with_name(field.name()) {
                     if v.data_type() != field.data_type() {
-                        diff_fields.insert(v.name().clone(), v.data_type().clone());
+                        diff_fields.insert(v.name().into(), v.data_type().clone());
                     }
                 }
             }

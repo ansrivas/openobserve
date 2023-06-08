@@ -91,7 +91,7 @@ impl From<&cluster_rpc::FileMeta> for meta::common::FileMeta {
 impl From<&meta::common::FileKey> for cluster_rpc::FileKey {
     fn from(req: &meta::common::FileKey) -> Self {
         cluster_rpc::FileKey {
-            key: req.key.clone(),
+            key: req.key.to_string(),
             meta: Some(cluster_rpc::FileMeta::from(&req.meta)),
             deleted: req.deleted,
         }

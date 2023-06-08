@@ -28,7 +28,7 @@ use crate::infra::{
 };
 use crate::meta::StreamType;
 use crate::service::db;
-
+use smartstring::alias::String;
 mod storage;
 mod wal;
 
@@ -74,7 +74,7 @@ pub async fn search(
     let req_stype = req.stype;
     let session_id2 = session_id.clone();
     let sql2 = sql.clone();
-    let file_list = req.file_list.to_owned();
+    let file_list = req.file_list.iter().map(|f| f.into()).collect::<Vec<String>>();
     let storage_span = info_span!("service:search:grpc:in_storage");
     let task2 = tokio::task::spawn(
         async move {
@@ -232,7 +232,7 @@ pub fn handle_datafusion_error(err: DataFusionError) -> Error {
     if err.contains("Schema error: No field named") {
         let pos = err.find("Schema error: No field named").unwrap();
         return match get_key_from_error(&err, pos) {
-            Some(key) => Error::ErrorCode(ErrorCodes::SearchFieldNotFound(key)),
+            Some(key) => Error::ErrorCode(ErrorCodes::SearchFieldNotFound(key.to_string())),
             None => Error::ErrorCode(ErrorCodes::SearchSQLExecuteError(err)),
         };
     }
@@ -242,7 +242,7 @@ pub fn handle_datafusion_error(err: DataFusionError) -> Error {
     if err.contains("Invalid function ") {
         let pos = err.find("Invalid function ").unwrap();
         return match get_key_from_error(&err, pos) {
-            Some(key) => Error::ErrorCode(ErrorCodes::SearchFunctionNotDefined(key)),
+            Some(key) => Error::ErrorCode(ErrorCodes::SearchFunctionNotDefined(key.to_string())),
             None => Error::ErrorCode(ErrorCodes::SearchSQLExecuteError(err)),
         };
     }
@@ -268,7 +268,7 @@ fn get_key_from_error(err: &str, pos: usize) -> Option<String> {
             continue;
         }
         let pos_end = pos_end.unwrap();
-        return Some(err[pos + pos_start + 1..pos + pos_start + 1 + pos_end].to_string());
+        return Some(err[pos + pos_start + 1..pos + pos_start + 1 + pos_end].into());
     }
     None
 }

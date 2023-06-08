@@ -12,15 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use datafusion::{
-    arrow::datatypes::Schema,
-    datasource::file_format::file_type::FileType,
-    error::{DataFusionError, Result},
-    prelude::SessionContext,
-};
-use std::sync::Arc;
-use tokio::sync::Semaphore;
-
 use crate::infra::{cache::file_data, config::CONFIG};
 use crate::meta::{
     common::FileMeta, search::Session as SearchSession, stream::StreamParams, StreamType,
@@ -32,6 +23,15 @@ use crate::service::{
         match_source,
     },
 };
+use datafusion::{
+    arrow::datatypes::Schema,
+    datasource::file_format::file_type::FileType,
+    error::{DataFusionError, Result},
+    prelude::SessionContext,
+};
+use smartstring::alias::String;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 #[tracing::instrument(name = "promql:search:grpc:storage:create_context", skip_all)]
 pub(crate) async fn create_context(
@@ -56,7 +56,7 @@ pub(crate) async fn create_context(
 
     // calcuate scan size
     let (scan_original_size, scan_compressed_size) =
-        match file_list::calculate_files_size(&files.to_vec()).await {
+        match file_list::calculate_files_size(&files).await {
             Ok(size) => size,
             Err(err) => {
                 log::error!("calculate files size error: {}", err);

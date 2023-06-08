@@ -16,7 +16,7 @@ use chrono::{Duration, TimeZone, Utc};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use tokio::time;
-
+use smartstring::alias::String;
 use crate::common::json;
 use crate::common::utils::is_local_disk_storage;
 use crate::infra::config::CONFIG;
@@ -196,15 +196,15 @@ async fn delete_from_file_list(
     let mut hours_files: HashMap<String, Vec<FileKey>> = HashMap::with_capacity(24);
     for file in files {
         let columns: Vec<_> = file.split('/').collect();
-        let day_key = format!("{}-{}-{}", columns[4], columns[5], columns[6]);
+        let day_key = format!("{}-{}-{}", columns[4], columns[5], columns[6]).into();
         file_list_days.insert(day_key);
         let hour_key = format!(
             "{}/{}/{}/{}",
             columns[4], columns[5], columns[6], columns[7]
-        );
+        ).into();
         let entry = hours_files.entry(hour_key).or_default();
         entry.push(FileKey {
-            key: file,
+            key: file.into(),
             meta: FileMeta::default(),
             deleted: true,
         });

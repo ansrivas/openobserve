@@ -23,6 +23,7 @@ use crate::infra::{
     errors::{Error, ErrorCodes},
     ider, wal,
 };
+use smartstring::alias::String;
 use crate::meta;
 use crate::service::{
     db,
@@ -62,7 +63,7 @@ pub async fn search(
             .unwrap_or_default();
         for file_data in mem_files {
             scan_size += file_data.len();
-            let file_name = format!("/{work_dir}/{}.json", ider::generate());
+            let file_name:String = format!("/{work_dir}/{}.json", ider::generate()).into();
             tmpfs::set(&file_name, file_data.into()).expect("tmpfs set success");
             files.push(file_name);
         }
@@ -80,7 +81,7 @@ pub async fn search(
         Err(err) => {
             log::error!("get schema error: {}", err);
             return Err(Error::ErrorCode(ErrorCodes::SearchStreamNotFound(
-                sql.stream_name.clone(),
+                sql.stream_name.to_string(),
             )));
         }
     };
@@ -179,7 +180,7 @@ async fn get_file_list(sql: &Sql, stream_type: meta::StreamType) -> Result<Vec<S
             .match_source(&source_file, false, true, stream_type)
             .await
         {
-            result.push(format!("{}{local_file}", &CONFIG.common.data_wal_dir));
+            result.push(format!("{}{local_file}", &CONFIG.common.data_wal_dir).into());
         }
     }
     Ok(result)

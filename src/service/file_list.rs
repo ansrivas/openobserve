@@ -16,6 +16,7 @@ use crate::common;
 use crate::infra::cache::file_list;
 use crate::meta::common::FileMeta;
 use crate::meta::StreamType;
+use smartstring::alias::String;
 
 #[inline]
 pub async fn get_file_list(

@@ -24,6 +24,7 @@ use crate::infra::ider;
 use crate::infra::storage;
 use crate::meta::common::FileKey;
 use crate::service::db;
+use smartstring::alias::String;
 
 pub async fn run(offset: i64) -> Result<(), anyhow::Error> {
     run_merge(offset).await?;

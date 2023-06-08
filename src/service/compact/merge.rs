@@ -17,7 +17,7 @@ use ahash::AHashMap;
 use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 use std::{collections::HashMap, io::Write, sync::Arc, time::Instant};
 use tokio::time;
-
+use smartstring::alias::String;
 use crate::common::json;
 use crate::infra::{cache, config::CONFIG, db::etcd, ider, metrics, storage};
 use crate::meta::{
@@ -62,9 +62,10 @@ pub async fn merge_by_stream(
     // get last compacted offset
     let mut offset = db::compact::files::get_offset(org_id, stream_name, stream_type).await?;
     if offset == 0 {
+        let default_val = std::string::String::from("0");
         offset = schema_metadata
             .get("created_at")
-            .unwrap_or(&String::from("0"))
+            .unwrap_or(&default_val)
             .parse::<i64>()
             .unwrap();
     }
@@ -167,7 +168,7 @@ pub async fn merge_by_stream(
     for file in files {
         let prefix = {
             let pos = file.rfind('/').unwrap();
-            file[..pos].to_string()
+            file[..pos].to_string().into()
         };
         let partition = partition_files_with_size.entry(prefix).or_default();
         let file_meta = file_list::get_file_meta(&file).await?;
@@ -373,7 +374,7 @@ async fn merge_files(
             for field in cur_fields {
                 if let Ok(v) = schema_latest.field_with_name(field.name()) {
                     if v.data_type() != field.data_type() {
-                        diff_fields.insert(v.name().clone(), v.data_type().clone());
+                        diff_fields.insert(v.name().clone().into(), v.data_type().clone().into());
                     }
                 }
             }
@@ -412,7 +413,7 @@ async fn merge_files(
         log::info!(
             "[COMPACT] fake merge file succeeded, new file: fake.parquet, orginal_size: {new_file_size}, compressed_size: 0", 
         );
-        return Ok(("".to_string(), FileMeta::default(), vec![]));
+        return Ok(("".into(), FileMeta::default(), vec![]));
     }
 
     let mut buf = Vec::new();
@@ -422,7 +423,7 @@ async fn merge_files(
     new_file_meta.compressed_size = buf.len() as u64;
 
     let id = ider::generate();
-    let new_file_key = format!("{prefix}/{id}{}", &CONFIG.common.file_ext_parquet);
+    let new_file_key: String = format!("{prefix}/{id}{}", &CONFIG.common.file_ext_parquet).into();
 
     log::info!(
         "[COMPACT] merge file succeeded, new file: {}, orginal_size: {}, compressed_size: {}",

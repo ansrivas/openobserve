@@ -19,6 +19,7 @@ use once_cell::sync::Lazy;
 
 use crate::infra::config::RwHashMap;
 use crate::service::file_list;
+use smartstring::alias::String;
 
 pub static FILES: Lazy<RwHashMap<String, Vec<ObjectMeta>>> = Lazy::new(DashMap::default);
 
@@ -36,12 +37,12 @@ pub async fn set(session_id: &str, files: &[String]) -> Result<(), anyhow::Error
         let meta = file_list::get_file_meta(file).await.unwrap();
         let modified = Utc.timestamp_nanos(meta.max_ts * 1000);
         values.push(ObjectMeta {
-            location: file.clone().into(),
+            location: file.to_string().into(),
             last_modified: modified,
             size: meta.compressed_size as usize,
         });
     }
-    FILES.insert(session_id.to_string(), values);
+    FILES.insert(session_id.to_string().into(), values);
     Ok(())
 }
 
@@ -63,11 +64,11 @@ mod tests {
             original_size: 1024,
             compressed_size: 1,
         };
-        let file_name = "files/default/logs/olympics/2022/10/03/10/6982652937134804993_1.parquet";
-        crate::infra::cache::file_list::set_file_to_cache(file_name, meta).unwrap();
+        let file_name:String = "files/default/logs/olympics/2022/10/03/10/6982652937134804993_1.parquet".into();
+        crate::infra::cache::file_list::set_file_to_cache(&file_name, meta).unwrap();
         let session_id = "1234";
 
-        let res = set(session_id, &[file_name.to_string()]).await;
+        let res = set(session_id, &[file_name]).await;
         assert!(res.is_ok());
 
         let get_resp = get(session_id).await;

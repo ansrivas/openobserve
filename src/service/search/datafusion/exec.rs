@@ -12,6 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::storage::{file_list, StorageType};
+#[cfg(feature = "zo_functions")]
+use super::transform_udf::get_all_transform;
+use crate::common::json;
+use crate::infra::{cache::tmpfs, config::CONFIG};
+use crate::meta::{
+    common::FileMeta, search::Session as SearchSession, sql, stream::StreamParams, StreamType,
+};
+use crate::service::search::sql::Sql;
 use ahash::AHashMap as HashMap;
 use datafusion::{
     arrow::{
@@ -37,20 +46,11 @@ use datafusion::{
     prelude::{cast, col, lit, Expr, SessionContext},
     scalar::ScalarValue,
 };
+use once_cell::sync::Lazy;
 use parquet::arrow::ArrowWriter;
 use regex::Regex;
+use smartstring::alias::String;
 use std::{sync::Arc, time::Instant};
-
-use super::storage::{file_list, StorageType};
-#[cfg(feature = "zo_functions")]
-use super::transform_udf::get_all_transform;
-use crate::common::json;
-use crate::infra::{cache::tmpfs, config::CONFIG};
-use crate::meta::{
-    common::FileMeta, search::Session as SearchSession, sql, stream::StreamParams, StreamType,
-};
-use crate::service::search::sql::Sql;
-use once_cell::sync::Lazy;
 
 const AGGREGATE_UDF_LIST: [&str; 6] = ["min", "max", "count", "avg", "sum", "array_agg"];
 
@@ -115,7 +115,7 @@ pub async fn sql(
 
     // query
     let query = if !&sql.query_context.is_empty() {
-        sql.query_context.replace(&sql.stream_name, "tbl").clone()
+        sql.query_context.replace(&sql.stream_name.to_string(), "tbl").clone().into()
     } else if (!field_fns.is_empty() && !sql_parts.is_empty()) || sql.query_fn.is_some() {
         match sql.meta.time_range {
             Some(ts_range) => format!(
@@ -129,7 +129,7 @@ pub async fn sql(
             None => sql_parts[0].to_owned(),
         }
     } else {
-        sql.origin_sql.clone()
+        sql.origin_sql.clone().into()
     };
 
     // Debug SQL
@@ -155,7 +155,8 @@ pub async fn sql(
                 exprs.push(col(field.name()));
                 continue;
             }
-            exprs.push(match rules.get(field.name()) {
+            let field_name:String = field.name().clone().into();
+            exprs.push(match rules.get(&field_name) {
                 Some(rule) => Expr::Alias(
                     Box::new(cast(col(field.name()), rule.clone())),
                     field.name().to_string(),
@@ -172,7 +173,7 @@ pub async fn sql(
         if sql.query_fn.is_some() {
             resp = handle_query_fn(sql.query_fn.clone().unwrap(), batches, &sql.org_id);
         } else {
-            result.insert("query".to_string(), batches);
+            result.insert("query".into(), batches);
             log::info!("Query took {:.3} seconds.", start.elapsed().as_secs_f64());
         }
     }
@@ -193,12 +194,15 @@ pub async fn sql(
                     .schema()
                     .field_names()
                     .iter()
-                    .map(|f| f.strip_prefix("tbl_temp.").unwrap().to_string())
+                    .map(|f| f.strip_prefix("tbl_temp.").unwrap().into())
                     .collect::<Vec<String>>();
                 let need_add_columns = schema
                     .fields()
                     .iter()
-                    .filter(|field| !tmp_fields.contains(field.name()))
+                    .filter(|field| {
+                        let key = field.name().clone().into();
+                        !tmp_fields.contains(&key)
+                    })
                     .map(|field| field.name().as_str())
                     .collect::<Vec<&str>>();
                 if !need_add_columns.is_empty() {
@@ -219,7 +223,7 @@ pub async fn sql(
     }
 
     if (!field_fns.is_empty() && !sql_parts[1].is_empty()) || sql.query_fn.is_some() {
-        let mut where_query = format!("select * from tbl_temp where {}", &sql_parts[1]);
+        let mut where_query = format!("select * from tbl_temp where {}", &sql_parts[1]).into();
 
         for alias in &sql.meta.field_alias {
             replace_in_query(&alias.1, &mut where_query, true);
@@ -239,7 +243,7 @@ pub async fn sql(
             }
         };
         let batches = df.clone().collect().await?;
-        result.insert("query".to_string(), batches);
+        result.insert("query".into(), batches);
         log::info!("Query took {:.3} seconds.", start.elapsed().as_secs_f64());
     }
 
@@ -251,9 +255,9 @@ pub async fn sql(
         log::info!("Query agg sql: {}", orig_agg_sql.0);
 
         let mut agg_sql = if !&sql.query_context.is_empty() || sql.query_fn.is_some() {
-            orig_agg_sql.0.replace("tbl", "tbl_temp")
+            orig_agg_sql.0.replace("tbl", "tbl_temp").into()
         } else {
-            orig_agg_sql.0.clone()
+            orig_agg_sql.0.clone().into()
         };
 
         if meta_sql.is_ok() {
@@ -282,7 +286,8 @@ pub async fn sql(
                     exprs.push(col(field.name()));
                     continue;
                 }
-                exprs.push(match rules.get(field.name()) {
+                let fname: String = field.name().clone().into();
+                exprs.push(match rules.get(&fname) {
                     Some(rule) => Expr::Alias(
                         Box::new(cast(col(field.name()), rule.clone())),
                         field.name().to_string(),
@@ -293,7 +298,7 @@ pub async fn sql(
             df = df.select(exprs)?;
         }
         let batches = df.collect().await?;
-        result.insert(format!("agg_{name}"), batches);
+        result.insert(format!("agg_{name}").into(), batches);
         log::info!(
             "Query agg:{name} took {:.3} seconds.",
             start.elapsed().as_secs_f64()
@@ -317,13 +322,16 @@ fn replace_in_query(replace_pat: &String, where_query: &mut String, is_alias: bo
         let cap_str = caps.get(0).unwrap().as_str();
         let field = caps.get(1).unwrap().as_str();
         if is_alias {
-            *where_query = where_query.replace(cap_str, &format!("{replace_pat}['{field}']"));
+            let replaced_query = where_query.replace(cap_str, &format!("{replace_pat}['{field}']"));
+            *where_query = replaced_query.into();
         } else {
             let local_pattern = replace_pat
                 .replace("tbl_", "")
                 .replacen('_', "(", 1)
                 .replace('_', ")");
-            *where_query = where_query.replace(cap_str, &format!("{local_pattern}['{field}']"));
+            let replaced_query =
+                where_query.replace(cap_str, &format!("{local_pattern}['{field}']"));
+            *where_query = replaced_query.into();
         }
     }
 }
@@ -368,7 +376,7 @@ pub async fn merge(
                     &format!(" LIMIT {limit} OFFSET {offset}"),
                 )
             } else {
-                sql
+                sql.into()
             }
         }
         Err(e) => {
@@ -443,7 +451,7 @@ pub async fn merge(
 
 fn merge_write_recordbatch(batches: &[Vec<RecordBatch>]) -> Result<(Option<Arc<Schema>>, String)> {
     let mut schema = None;
-    let work_dir = format!("/tmp/merge/{}/", chrono::Utc::now().timestamp_micros());
+    let work_dir = format!("/tmp/merge/{}/", chrono::Utc::now().timestamp_micros()).into();
     for (i, item) in batches.iter().enumerate() {
         if item.is_empty() {
             continue;
@@ -504,7 +512,7 @@ fn merge_rewrite_sql(sql: &str, schema: Arc<Schema>) -> Result<String> {
                 continue;
             }
             if in_word {
-                let field = sql_chars[start_pos..i].iter().collect::<String>();
+                let field: String = sql_chars[start_pos..i].iter().collect::<std::string::String>().into();
                 if field.to_lowercase().eq("from") {
                     from_pos = i;
                     break;
@@ -552,7 +560,7 @@ fn merge_rewrite_sql(sql: &str, schema: Arc<Schema>) -> Result<String> {
     // handle select *
     let mut fields = new_fields;
     if fields.len() == 1 && sel_fields_has_star {
-        return Ok(sql);
+        return Ok(sql.into());
     }
     if sel_fields_has_star {
         let mut new_fields = Vec::with_capacity(fields.len());
@@ -581,7 +589,7 @@ fn merge_rewrite_sql(sql: &str, schema: Arc<Schema>) -> Result<String> {
             "in sql fields: {:?}",
             fields
                 .iter()
-                .map(|f| f.trim_matches('"').to_string())
+                .map(|f| f.trim_matches('"').to_string().into())
                 .collect::<Vec<String>>()
         );
         log::error!(
@@ -589,7 +597,7 @@ fn merge_rewrite_sql(sql: &str, schema: Arc<Schema>) -> Result<String> {
             schema
                 .fields()
                 .iter()
-                .map(|f| f.name().clone())
+                .map(|f| f.name().clone().into())
                 .collect::<Vec<String>>()
         );
         return Err(datafusion::error::DataFusionError::Execution(
@@ -647,7 +655,7 @@ fn merge_rewrite_sql(sql: &str, schema: Arc<Schema>) -> Result<String> {
         sql = sql.replace(&where_str, " ");
     }
 
-    Ok(sql)
+    Ok(sql.into())
 }
 
 pub async fn convert_parquet_file(
@@ -706,7 +714,8 @@ pub async fn convert_parquet_file(
                 exprs.push(col(field.name()));
                 continue;
             }
-            exprs.push(match rules.get(field.name()) {
+            let fname:String = field.name().clone().into();
+            exprs.push(match rules.get(&fname) {
                 Some(rule) => Expr::Alias(
                     Box::new(cast(col(field.name()), rule.clone())),
                     field.name().to_string(),
@@ -885,17 +894,17 @@ pub async fn register_table(
             )));
         }
     };
-
+    let files: Vec<String> = files.iter().map(|f| f.clone()).collect();
     let prefix = if session.storage_type.eq(&StorageType::Wal) {
         format!(
             "{}files/{}/{stream_type}/{}/",
             &CONFIG.common.data_wal_dir, org_id, stream_name
         )
     } else if session.storage_type.eq(&StorageType::FsMemory) {
-        file_list::set(&session.id, files).await.unwrap();
+        file_list::set(&session.id, &files).await.unwrap();
         format!("fsm:///{}/", session.id)
     } else if session.storage_type.eq(&StorageType::FsNoCache) {
-        file_list::set(&session.id, files).await.unwrap();
+        file_list::set(&session.id, &files).await.unwrap();
         format!("fsn:///{}/", session.id)
     } else if session.storage_type.eq(&StorageType::Tmpfs) {
         format!("tmpfs:///{}/", session.id)
@@ -968,7 +977,7 @@ fn handle_query_fn(
 #[cfg(feature = "zo_functions")]
 fn apply_query_fn(
     query_fn_src: String,
-    in_batch: Vec<json::Map<String, json::Value>>,
+    in_batch: Vec<json::Map<std::string::String, json::Value>>,
     org_id: &str,
 ) -> Result<Option<Vec<RecordBatch>>> {
     use vector_enrichment::TableRegistry;
