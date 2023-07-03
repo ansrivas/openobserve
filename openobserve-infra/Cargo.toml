@@ -1,60 +1,16 @@
 [package]
-name = "openobserve"
+name = "openobserve-infra"
 version = "0.1.0"
 edition = "2021"
 
-[workspace]
-members = [
-  "openobserve-common",
-  "openobserve-handler",
-  "openobserve-infra",
-  "openobserve-job",
-  "openobserve-meta",
-  "openobserve-service",
-  "openobserve"
-]
-
-[workspace.package]
-description = "OpenObserve is an observability platform that allows you to capture, search, and analyze your logs, metrics, and traces."
-edition = "2021"
-homepage = "https://openobserve.ai/"
-keywords = [
-  "search",
-  "log",
-  "metrics",
-  "traces",
-  "analytics",
-  "observability",
-  "open source",
-  "open-source",
-  "opensource",
-]
-license = "Apache-2.0"
-repository = "https://github.com/openobserve/openobserve/"
-publish = false
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[features]
-mimalloc = ["dep:mimalloc"]
-jemalloc = ["dep:tikv-jemallocator"]
-profiling = ["dep:pyroscope", "dep:pyroscope_pprofrs"]
-
-[profile.release]
-debug = false
-strip = true
-codegen-units = 1
-lto = "thin"
-
-[profile.release-profiling]
-inherits = "release"
-debug = true
-strip = false
-codegen-units = 4
-
-[workspace.dependencies]
-# chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dependencies]
+# openobserve-common = {path="../openobserve-common/"}
+# openobserve-handler = {path="../openobserve-handler/"}
+# openobserve-job = {path="../openobserve-job/"}
+# openobserve-meta = {path="../openobserve-meta/"}
+# openobserve-service = {path="../openobserve-service/"}
+
 actix-cors = "0.6"
 actix-multipart = "0.6.0"
 actix-web = "4.3"
