@@ -61,6 +61,10 @@ impl Engine {
 
     #[async_recursion]
     pub async fn exec_expr(&mut self, prom_expr: &PromExpr) -> Result<Value> {
+        println!("***************************8");
+        println!("{:?}", prom_expr);
+        println!("***************************8");
+
         Ok(match &prom_expr {
             PromExpr::Aggregate(AggregateExpr {
                 op,
@@ -97,10 +101,11 @@ impl Engine {
                 let lhs = self.exec_expr(&expr.lhs).await?;
                 let rhs = self.exec_expr(&expr.rhs).await?;
                 let token = expr.op.id();
+                let return_bool = expr.return_bool();
 
                 match (lhs.clone(), rhs.clone()) {
                     (Value::Float(left), Value::Float(right)) => {
-                        let value = binaries::scalar_binary_operations(token, left, right)?;
+                        let value = binaries::scalar_binary_operations(token, left, right, return_bool)?;
                         Value::Float(value)
                     }
                     (Value::Vector(left), Value::Vector(right)) => {

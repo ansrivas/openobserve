@@ -18,12 +18,17 @@ pub async fn vector_scalar_bin_op(
 ) -> Result<Value> {
     let is_comparison_operator = expr.op.is_comparison_operator();
 
+    let return_bool = expr.return_bool();
     let output: Vec<InstantValue> = left
         .par_iter()
-        .map(|instant| {
+        .flat_map(|instant| {
             let value =
-                scalar_binary_operations(expr.op.id(), instant.sample.value, right).unwrap();
-            (instant, value)
+                scalar_binary_operations(expr.op.id(), instant.sample.value, right, return_bool);
+            if let Ok(value) = value {
+                Some((instant, value))
+            } else {
+                None
+            }
         })
         .filter(|(_instant, value)| {
             // If the operation was of type comparison and the value was True i.e. 1.0
@@ -159,6 +164,7 @@ fn vector_arithmatic_operators(
     left: &[InstantValue],
     right: &[InstantValue],
 ) -> Result<Value> {
+    let return_bool = expr.return_bool();
     let operator = expr.op.id();
     // Get the hash for the labels on the right
     let rhs_sig: HashMap<Signature, Sample> = right
@@ -177,16 +183,23 @@ fn vector_arithmatic_operators(
                 None
             }
         })
-        .map(|(lhs_instant, rhs_sample)| {
-            let value =
-                scalar_binary_operations(operator, lhs_instant.sample.value, rhs_sample.value)
-                    .unwrap();
-            InstantValue {
-                labels: lhs_instant.labels.clone(),
-                sample: Sample {
-                    timestamp: lhs_instant.sample.timestamp,
-                    value,
-                },
+        .flat_map(|(lhs_instant, rhs_sample)| {
+            let value = scalar_binary_operations(
+                operator,
+                lhs_instant.sample.value,
+                rhs_sample.value,
+                return_bool,
+            );
+            if let Ok(v) = value {
+                Some(InstantValue {
+                    labels: lhs_instant.labels.clone(),
+                    sample: Sample {
+                        timestamp: lhs_instant.sample.timestamp,
+                        value: v,
+                    },
+                })
+            } else {
+                None
             }
         })
         .collect();
