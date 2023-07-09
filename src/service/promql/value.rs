@@ -33,6 +33,8 @@ pub trait LabelsExt {
     /// {"__name__": "my-metric", "job": "k8s"} -> {"job": "k8s"}
     /// ```
     fn without_metric_name(&self) -> Labels;
+
+    // fn join(&self, sep:&str) -> Label;
 }
 
 impl LabelsExt for Labels {
@@ -321,6 +323,13 @@ impl Value {
     pub(crate) fn get_ref_matrix_values(&self) -> Option<&Vec<RangeValue>> {
         match self {
             Value::Matrix(values) => Some(values),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn get_string(&self) -> Option<String> {
+        match self {
+            Value::String(v) => Some(v.into()),
             _ => None,
         }
     }

@@ -69,6 +69,7 @@ impl Engine {
                 modifier,
             }) => self.aggregate_exprs(op, expr, param, modifier).await?,
             PromExpr::Unary(UnaryExpr { expr }) => {
+                // self.exec_expr(expr).await?
                 return Err(DataFusionError::NotImplemented(format!(
                     "Unsupported Unary: {:?}",
                     expr
@@ -527,10 +528,22 @@ impl Engine {
             Func::Increase => functions::increase(&input)?,
             Func::Irate => functions::irate(&input)?,
             Func::LabelJoin => {
-                return Err(DataFusionError::NotImplemented(format!(
-                    "Unsupported Function: {:?}",
-                    func_name
-                )));
+                let input = self.call_expr_first_arg(args).await?;
+                let dst_label = self.call_expr_second_arg(args).await?.get_string().ok_or(
+                    DataFusionError::NotImplemented(format!("Invalid separator label found",)),
+                )?;
+                let separator = self.call_expr_third_arg(args).await?.get_string().ok_or(
+                    DataFusionError::NotImplemented(format!("Invalid separator label found",)),
+                )?;
+
+                let mut source_labels = vec![];
+                for each_src in args.args[3..].iter() {
+                    if let Value::String(label) = self.exec_expr(each_src).await.unwrap() {
+                        source_labels.push(label);
+                    };
+                }
+
+                functions::label_join(&input, &dst_label, &separator, source_labels)?
             }
             Func::LabelReplace => {
                 return Err(DataFusionError::NotImplemented(format!(
