@@ -68,12 +68,30 @@ impl Engine {
                 param,
                 modifier,
             }) => self.aggregate_exprs(op, expr, param, modifier).await?,
+
             PromExpr::Unary(UnaryExpr { expr }) => {
-                // self.exec_expr(expr).await?
-                return Err(DataFusionError::NotImplemented(format!(
-                    "Unsupported Unary: {:?}",
-                    expr
-                )));
+                let val = self.exec_expr(expr).await?;
+                match val {
+                    Value::Vector(v) => {
+                        let out = v
+                            .iter()
+                            .map(|instant| InstantValue {
+                                labels: instant.labels.clone(),
+                                sample: Sample {
+                                    timestamp: instant.sample.timestamp,
+                                    value: -1.0 * instant.sample.value,
+                                },
+                            })
+                            .collect();
+                        Value::Vector(out)
+                    }
+                    _ => {
+                        return Err(DataFusionError::NotImplemented(format!(
+                            "Unsupported Unary: {:?}",
+                            expr
+                        )));
+                    }
+                }
             }
             PromExpr::Binary(expr) => {
                 let lhs = self.exec_expr(&expr.lhs).await?;
