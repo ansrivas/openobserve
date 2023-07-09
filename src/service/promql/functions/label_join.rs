@@ -18,7 +18,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use crate::{
     common::meta::prom::NAME_LABEL,
-    service::promql::value::{InstantValue, Label, Labels, LabelsExt, RangeValue, Value},
+    service::promql::value::{InstantValue, Label, Value},
 };
 
 /// https://prometheus.io/docs/prometheus/latest/querying/functions/#label_join
@@ -29,35 +29,36 @@ pub(crate) fn label_join(
     source_labels: Vec<String>,
 ) -> Result<Value> {
     let data = match data {
-        // Value::Matrix(v) => v,
         Value::Vector(v) => v,
         Value::None => return Ok(Value::None),
         _ => {
             return Err(DataFusionError::Plan(format!(
-                "label_join: matrix argument expected"
+                "label_join: vector argument expected"
             )))
         }
     };
 
     let keep_source_labels: HashSet<String> = HashSet::from_iter(source_labels);
-    let mut rate_values = Vec::with_capacity(data.len());
-    for metric in data {
-        let new_label = metric
-            .labels
-            .iter()
-            .filter(|l| l.name != NAME_LABEL && keep_source_labels.contains(&l.name))
-            .map(|label| label.value.clone())
-            .join(separator);
+    let rate_values: Vec<InstantValue> = data
+        .iter()
+        .map(|instant| {
+            let new_label = instant
+                .labels
+                .iter()
+                .filter(|l| l.name != NAME_LABEL && keep_source_labels.contains(&l.name))
+                .map(|label| label.value.clone())
+                .join(separator);
 
-        let mut new_labels = metric.labels.clone();
-        new_labels.push(Arc::new(Label {
-            name: dest_label.to_string(),
-            value: new_label,
-        }));
-        rate_values.push(InstantValue {
-            labels: new_labels,
-            sample: metric.sample,
-        });
-    }
+            let mut new_labels = instant.labels.clone();
+            new_labels.push(Arc::new(Label {
+                name: dest_label.to_string(),
+                value: new_label,
+            }));
+            InstantValue {
+                labels: new_labels,
+                sample: instant.sample,
+            }
+        })
+        .collect();
     Ok(Value::Vector(rate_values))
 }

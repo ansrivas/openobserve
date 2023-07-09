@@ -386,6 +386,13 @@ impl Engine {
         Ok(())
     }
 
+    fn ensure_ge_three_args(&self, args: &FunctionArgs, err: &str) -> Result<()> {
+        if args.len() >= 3 {
+            return Err(DataFusionError::NotImplemented(err.into()));
+        }
+        Ok(())
+    }
+
     async fn call_expr(&mut self, func: &Function, args: &FunctionArgs) -> Result<Value> {
         use crate::service::promql::functions::Func;
 
@@ -528,9 +535,12 @@ impl Engine {
             Func::Increase => functions::increase(&input)?,
             Func::Irate => functions::irate(&input)?,
             Func::LabelJoin => {
+                let err = "Invalid args, expected \"label_join(v instant-vector, dst string, sep string, src_1 string, src_2 string, ...)\"";
+                self.ensure_ge_three_args(args, err)?;
+
                 let input = self.call_expr_first_arg(args).await?;
                 let dst_label = self.call_expr_second_arg(args).await?.get_string().ok_or(
-                    DataFusionError::NotImplemented(format!("Invalid separator label found",)),
+                    DataFusionError::NotImplemented(format!("Invalid destination label found",)),
                 )?;
                 let separator = self.call_expr_third_arg(args).await?.get_string().ok_or(
                     DataFusionError::NotImplemented(format!("Invalid separator label found",)),
@@ -542,7 +552,11 @@ impl Engine {
                         source_labels.push(label);
                     };
                 }
-
+                if source_labels.is_empty() {
+                    return Err(DataFusionError::NotImplemented(
+                        "source labels can not be empty or invalid".into(),
+                    ));
+                }
                 functions::label_join(&input, &dst_label, &separator, source_labels)?
             }
             Func::LabelReplace => {
