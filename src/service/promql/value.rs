@@ -34,7 +34,8 @@ pub trait LabelsExt {
     /// ```
     fn without_metric_name(&self) -> Labels;
 
-    // fn join(&self, sep:&str) -> Label;
+    /// Return the value of the label associated with this name of the label.
+    fn get_value(&self, name: &str) -> String;
 }
 
 impl LabelsExt for Labels {
@@ -42,6 +43,14 @@ impl LabelsExt for Labels {
         self.iter()
             .filter(|label| label.name != NAME_LABEL)
             .cloned()
+            .collect()
+    }
+
+    fn get_value(&self, name: &str) -> String {
+        self.iter()
+            .filter(|l| l.name == name)
+            .map(|l| l.value.to_string())
+            .take(1)
             .collect()
     }
 }

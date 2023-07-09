@@ -32,9 +32,9 @@ pub(crate) fn label_join(
         Value::Vector(v) => v,
         Value::None => return Ok(Value::None),
         _ => {
-            return Err(DataFusionError::Plan(format!(
-                "label_join: vector argument expected"
-            )))
+            return Err(DataFusionError::Plan(
+                "label_join: vector argument expected".into(),
+            ))
         }
     };
 
