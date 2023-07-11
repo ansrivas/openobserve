@@ -40,15 +40,16 @@ pub async fn vector_scalar_bin_op(
     println!("************is_comparison_operator {is_comparison_operator}**************");
     println!("************return_bool {return_bool}**************");
     println!("************card {:?}**************", card);
+    println!("************swapped {:?}**************", swapped_lhs_rhs);
     println!("************vector_scalar_bin_op end**************");
 
     let output: Vec<InstantValue> = left
         .par_iter()
         .flat_map(|instant| {
             let (lhs, rhs) = if swapped_lhs_rhs {
-                (instant.sample.value, right)
-            } else {
                 (right, instant.sample.value)
+            } else {
+                (instant.sample.value, right)
             };
             match scalar_binary_operations(
                 expr.op.id(),
