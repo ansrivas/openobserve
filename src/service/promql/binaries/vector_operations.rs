@@ -8,6 +8,21 @@ use datafusion::error::{DataFusionError, Result};
 use promql_parser::parser::{token, BinaryExpr, VectorMatchCardinality};
 use rayon::prelude::*;
 
+use once_cell::sync::Lazy;
+
+// DROP_METRIC_VECTOR_BIN_OP if the operation is one of these, drop the metric __name__
+pub static DROP_METRIC_VECTOR_BIN_OP: Lazy<HashSet<u8>> = Lazy::new(|| {
+    let h = HashSet::from_iter([
+        token::T_ADD,
+        token::T_SUB,
+        token::T_DIV,
+        token::T_MUL,
+        token::T_POW,
+        token::T_MOD,
+    ]);
+    h
+});
+
 /// Implement the operation between a vector and a float.
 ///
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#arithmetic-binary-operators
@@ -15,27 +30,58 @@ pub async fn vector_scalar_bin_op(
     expr: &BinaryExpr,
     left: &[InstantValue],
     right: f64,
+    swapped_lhs_rhs: bool,
 ) -> Result<Value> {
     let is_comparison_operator = expr.op.is_comparison_operator();
+    let return_bool = expr.return_bool();
+    let card = &expr.modifier;
+
+    println!("************vector_scalar_bin_op start**************");
+    println!("************is_comparison_operator {is_comparison_operator}**************");
+    println!("************return_bool {return_bool}**************");
+    println!("************card {:?}**************", card);
+    println!("************vector_scalar_bin_op end**************");
 
     let output: Vec<InstantValue> = left
         .par_iter()
-        .map(|instant| {
-            let value =
-                scalar_binary_operations(expr.op.id(), instant.sample.value, right).unwrap();
-            (instant, value)
-        })
-        .filter(|(_instant, value)| {
-            // If the operation was of type comparison and the value was True i.e. 1.0
-            // Or if this is not a comparison operation at all, take it.
-            !is_comparison_operator || *value > 0.0
-        })
-        .map(|(instant, value)| InstantValue {
-            labels: instant.labels.without_metric_name(),
-            sample: Sample {
-                timestamp: instant.sample.timestamp,
-                value,
-            },
+        .flat_map(|instant| {
+            let (lhs, rhs) = if swapped_lhs_rhs {
+                (instant.sample.value, right)
+            } else {
+                (right, instant.sample.value)
+            };
+            match scalar_binary_operations(
+                expr.op.id(),
+                lhs,
+                rhs,
+                return_bool,
+                is_comparison_operator,
+            )
+            .ok()
+            {
+                Some(value) => {
+                    let labels = if return_bool || DROP_METRIC_VECTOR_BIN_OP.contains(&expr.op.id())
+                    {
+                        instant.labels.without_metric_name()
+                    } else {
+                        instant.labels.clone()
+                    };
+                    let final_value = if is_comparison_operator && swapped_lhs_rhs {
+                        instant.sample.value
+                    } else {
+                        value
+                    };
+
+                    Some(InstantValue {
+                        labels,
+                        sample: Sample {
+                            timestamp: instant.sample.timestamp,
+                            value: final_value,
+                        },
+                    })
+                }
+                None => None,
+            }
         })
         .collect();
     Ok(Value::Vector(output))
@@ -148,7 +194,10 @@ fn vector_and(expr: &BinaryExpr, left: &[InstantValue], right: &[InstantValue]) 
             let left_sig = signature(&item.labels);
             rhs_sig.contains(&left_sig)
         })
-        .map(|val| val.clone())
+        .map(|instant| InstantValue {
+            labels: instant.labels.without_metric_name(),
+            sample: instant.sample,
+        })
         .collect();
 
     Ok(Value::Vector(output))
@@ -159,6 +208,8 @@ fn vector_arithmatic_operators(
     left: &[InstantValue],
     right: &[InstantValue],
 ) -> Result<Value> {
+    println!("************vector_arithmatic_operators start**************");
+    println!("************vector_arithmatic_operators end**************");
     let operator = expr.op.id();
     // Get the hash for the labels on the right
     let rhs_sig: HashMap<Signature, Sample> = right
@@ -166,6 +217,8 @@ fn vector_arithmatic_operators(
         .map(|item| (signature(&item.labels), item.sample))
         .collect();
 
+    let return_bool = expr.return_bool();
+    let comparison_operator = expr.op.is_comparison_operator();
     // Iterate over left and pick up the corresponding instance from rhs
     let output: Vec<InstantValue> = left
         .par_iter()
@@ -177,16 +230,24 @@ fn vector_arithmatic_operators(
                 None
             }
         })
-        .map(|(lhs_instant, rhs_sample)| {
-            let value =
-                scalar_binary_operations(operator, lhs_instant.sample.value, rhs_sample.value)
-                    .unwrap();
-            InstantValue {
-                labels: lhs_instant.labels.clone(),
-                sample: Sample {
-                    timestamp: lhs_instant.sample.timestamp,
-                    value,
-                },
+        .flat_map(|(lhs_instant, rhs_sample)| {
+            match scalar_binary_operations(
+                operator,
+                lhs_instant.sample.value,
+                rhs_sample.value,
+                return_bool,
+                comparison_operator,
+            )
+            .ok()
+            {
+                Some(value) => Some(InstantValue {
+                    labels: lhs_instant.labels.clone(),
+                    sample: Sample {
+                        timestamp: lhs_instant.sample.timestamp,
+                        value,
+                    },
+                }),
+                None => None,
             }
         })
         .collect();
