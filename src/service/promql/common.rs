@@ -86,7 +86,7 @@ pub fn quantile(data: &[f64], quantile: f64) -> Option<f64> {
     let upper = sorted_data[index + 1];
 
     let fraction = quantile * (n - 1) as f64 - index as f64;
-    let quantile_value = lower + (upper - lower) * fraction;
+    let quantile_value = (lower * (1.0 - fraction)) + (upper * fraction);
 
     Some(quantile_value)
 }

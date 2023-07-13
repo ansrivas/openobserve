@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use datafusion::error::Result;
+use kahan::KahanSummator;
+use rayon::prelude::*;
 
 use crate::service::promql::value::{RangeValue, Value};
 
@@ -21,8 +23,11 @@ pub(crate) fn sum_over_time(data: &Value) -> Result<Value> {
 }
 
 fn exec(data: &RangeValue) -> Option<f64> {
+    println!("*****************");
+    println!("*******{:?}*********", &data);
     if data.samples.is_empty() {
         return None;
     }
-    Some(data.samples.iter().map(|s| s.value).sum())
+    let sum = data.samples.iter().map(|s| s.value).kahan_sum().sum();
+    Some(sum)
 }
