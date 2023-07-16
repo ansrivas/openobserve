@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::Engine;
+use super::value::InstantValue;
+use crate::common::meta::prom::NAME_LABEL;
+use crate::service::promql::value::Label;
+use crate::service::promql::value::{signature, Labels, Signature, Value};
 use ahash::AHashMap as HashMap;
 use datafusion::error::{DataFusionError, Result};
 use promql_parser::parser::{Expr as PromExpr, LabelModifier};
 use std::sync::Arc;
+use rayon::prelude::*;
 
-use super::Engine;
-use crate::common::meta::prom::NAME_LABEL;
-use crate::service::promql::value::{signature, Label, Labels, Signature, Value};
+ 
 
 mod avg;
 mod bottomk;
@@ -188,6 +192,7 @@ pub(crate) fn eval_arithmetic(
 pub async fn eval_top(
     ctx: &mut Engine,
     param: Box<PromExpr>,
+    modifier: &Option<LabelModifier>,
     data: &Value,
     is_bottom: bool,
 ) -> Result<Value> {
@@ -229,11 +234,30 @@ pub async fn eval_top(
     } else {
         score_values.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap());
     }
-    let values = score_values
-        .iter()
-        .take(n)
-        .map(|v| data[v.index].clone())
-        .collect();
+    let labels = match modifier {
+        Some(v) => match v {
+            LabelModifier::Include(labels) => {
+                let labels = 
+            }
+            LabelModifier::Exclude(labels) => {}
+        },
+        None => {}
+    };
+
+    fn eval_top_processor(input:&[InstantValue], top_items:&[TopItem],  take: usize)-> Vec<InstantValue> {
+        let values = top_items
+            .into_par_iter()
+            .take(take)
+            .map(|v| {
+                let instant_value = &input[v.index];
+                InstantValue{
+                    labels: instant_value.labels.clone(),
+                    ..instant_value.clone()
+                }
+            })
+            .collect();
+            values
+    }
     Ok(Value::Vector(values))
 }
 

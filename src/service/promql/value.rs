@@ -45,6 +45,9 @@ pub trait LabelsExt {
 
     /// Without label, drops the given label name from the output.
     fn without_label(&self, name: &str) -> Labels;
+
+    /// Get the signature for the current label set.
+    fn signature(&self) -> Signature;
 }
 
 impl LabelsExt for Labels {
@@ -66,6 +69,11 @@ impl LabelsExt for Labels {
             .take(1)
             .collect()
     }
+
+    fn signature(&self) -> Signature{
+        signature(self)
+    }
+
 }
 
 #[derive(Debug, Clone)]
