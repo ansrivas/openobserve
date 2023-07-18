@@ -18,6 +18,11 @@ use promql_parser::parser::{Expr as PromExpr, LabelModifier};
 use super::Engine;
 use crate::service::promql::value::Value;
 
-pub async fn topk(ctx: &mut Engine, param: Box<PromExpr>, modifier: &Option<LabelModifier>, data: &Value) -> Result<Value> {
+pub async fn topk(
+    ctx: &mut Engine,
+    param: Box<PromExpr>,
+    modifier: &Option<LabelModifier>,
+    data: &Value,
+) -> Result<Value> {
     super::eval_top(ctx, param, modifier, data, false).await
 }

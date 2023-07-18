@@ -70,10 +70,9 @@ impl LabelsExt for Labels {
             .collect()
     }
 
-    fn signature(&self) -> Signature{
+    fn signature(&self) -> Signature {
         signature(self)
     }
-
 }
 
 #[derive(Debug, Clone)]
