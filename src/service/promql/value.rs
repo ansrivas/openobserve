@@ -21,6 +21,11 @@ use serde::{
 use std::{cmp::Ordering, sync::Arc, time::Duration};
 
 use crate::common::meta::prom::NAME_LABEL;
+use std::hash::BuildHasherDefault;
+use std::collections::HashMap;
+
+
+static SEPS: [u8; 1] = [0xFF];
 
 // https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels
 static RE_VALID_LABEL_NAME: Lazy<Regex> =
@@ -48,6 +53,12 @@ pub trait LabelsExt {
 
     /// Get the signature for the current label set.
     fn signature(&self) -> Signature;
+
+    /// Sort the given labels vec by the label `name`.
+    fn sort(&mut self);
+
+    /// hash for labels
+    fn hash_for_labels(&self, names: &[&str]) -> u64;
 }
 
 impl LabelsExt for Labels {
@@ -72,6 +83,39 @@ impl LabelsExt for Labels {
 
     fn signature(&self) -> Signature {
         signature(self)
+    }
+
+    fn sort(&mut self){
+       self.sort_by_key(|key| key.name.clone()) 
+    }
+
+    fn hash_for_labels(&self, names: &[&str]) -> u64 {
+        let mut labels = self.clone();
+        labels.sort();
+
+        let mut b: Vec<u8> = Vec::new();
+        let mut i = 0;
+        let mut j = 0;
+
+        while i < labels.len() && j < names.len() {
+            match labels[i].name.as_str().cmp(names[j]) {
+                std::cmp::Ordering::Less => j += 1,
+                std::cmp::Ordering::Greater => i += 1,
+                std::cmp::Ordering::Equal => {
+                    b.extend(labels[i].name.as_bytes());
+                    b.extend(&SEPS);
+                    b.extend(labels[i].value.as_bytes());
+                    b.extend(&SEPS);
+                    i += 1;
+                    j += 1;
+                }
+            }
+        }
+
+        let mut hasher = xxhash_rust::xxh3::Xxh3::new();
+        hasher.update(&b);
+        let hash = hasher.digest();
+        hash
     }
 }
 

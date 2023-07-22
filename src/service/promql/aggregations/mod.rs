@@ -16,7 +16,7 @@ use super::value::InstantValue;
 use super::Engine;
 use crate::common::meta::prom::NAME_LABEL;
 use crate::service::promql::value::{signature, Labels, Signature, Value};
-use crate::service::promql::value::{Label, Sample};
+use crate::service::promql::value::{Label, LabelsExt, Sample};
 use ahash::AHashMap as HashMap;
 use datafusion::error::{DataFusionError, Result};
 use promql_parser::parser::{Expr as PromExpr, LabelModifier};
@@ -152,6 +152,21 @@ fn eval_top_processor(
     });
 }
 
+fn eval_top_processor2(
+    score_values: &mut HashMap<u64, Vec<TopItem>>,
+    signature:u64,
+    value: f64,
+    index: usize,
+) {
+    let sum_hash = signature;
+
+    let entry = score_values.entry(sum_hash).or_insert(vec![]);
+    entry.push(TopItem {
+        labels: Labels::default(),
+        index,
+        value,
+    });
+}
 pub(crate) fn eval_arithmetic(
     param: &Option<LabelModifier>,
     data: &Value,
@@ -209,20 +224,6 @@ pub(crate) fn eval_arithmetic(
     Ok(Some(score_values))
 }
 
-// fn eval_top_processor(input:&[InstantValue], top_items:&[TopItem],  take: usize)-> Vec<InstantValue> {
-//     let values = top_items
-//         .into_par_iter()
-//         .take(take)
-//         .map(|v| {
-//             let instant_value = &input[v.index];
-//             InstantValue{
-//                 labels: instant_value.labels.clone(),
-//                 ..instant_value.clone()
-//             }
-//         })
-//         .collect();
-//         values
-// }
 
 pub async fn eval_top(
     ctx: &mut Engine,
@@ -253,110 +254,129 @@ pub async fn eval_top(
         }
     };
 
-    // let mut score_values = HashMap::default();
-    let mut score_values: HashMap<Signature, Vec<TopItem>> = HashMap::default();
+    let mut score_values: HashMap<u64, Vec<TopItem>> = HashMap::default();
     match modifier {
         Some(v) => match v {
+            // by queries
             LabelModifier::Include(labels) => {
+                println!("************BY********************");
+                println!("************{:?}********************", labels);
+                println!("************BY********************");
                 for (index, item) in data.iter().enumerate() {
+                    // let mut item_labels = item.labels.hash_for_labels(labels);
+                    // item_labels.sort();
+                    
                     let sum_labels = labels_to_include(&labels, &item.labels);
-                    eval_top_processor(&mut score_values, &sum_labels, item.sample.value, index);
+                    let mut names = labels.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
+                    names.sort();
+                    let signature = item.labels.hash_for_labels(&names);
+                    eval_top_processor2(&mut score_values, signature, item.sample.value, index);
                 }
             }
+            // without queries
             LabelModifier::Exclude(labels) => {
+                println!("************WITHOUT********************");
+                println!("************{:?}********************", labels);
+                println!("************WITHOUT********************");
                 for (index, item) in data.iter().enumerate() {
+                    // let mut item_labels = item.labels.clone();
+                    // item_labels.sort();
+
                     let sum_labels = labels_to_exclude(&labels, &item.labels);
-                    eval_top_processor(&mut score_values, &sum_labels, item.sample.value, index);
+                    let mut names = labels.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
+                    names.sort();
+                    let signature = item.labels.hash_for_labels(&names);
+                    eval_top_processor2(&mut score_values, signature, item.sample.value, index);
                 }
             }
         },
         None => {
             for (index, item) in data.iter().enumerate() {
-                // let sum_labels = Labels::default();
                 let sum_labels = item.labels.clone();
-                eval_top_processor(&mut score_values, &sum_labels, item.sample.value, index);
+                let names = vec![];
+                let signature = item.labels.hash_for_labels(&names);
+                eval_top_processor2(&mut score_values, signature, item.sample.value, index);
             }
         }
     }
 
-    // let mut score_values = Vec::new();
+    //**********************************************************************************/
+    // let mut score_values2 = Vec::new();
     // for (i, item) in data.iter().enumerate() {
     //     if item.sample.value.is_nan() {
     //         continue;
     //     }
-    //     score_values.push(TopItem {
+    //     score_values2.push(TopItem {
     //         index: i,
     //         value: item.sample.value,
+    //         labels: item.labels.clone(),
     //     });
+    //
     // }
 
     // if is_bottom {
-    //     score_values.values().(|a, b| a.value.partial_cmp(&b.value).unwrap());
+    //     score_values2.sort_by(|a, b| a.value.partial_cmp(&b.value).unwrap());
     // } else {
-    //     score_values.values().sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap());
+    //     score_values2.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap());
     // }
+    // let final_values = score_values2
+    //     .into_par_iter()
+    //     .take(n)
+    //     .map(|v| {
+    //         data[v.index].clone()
+    //     })
+    //     .collect::<Vec<InstantValue>>();
+    /************************************************************************************************/
 
-    // score_values.into_values().collect::<TopItem>().sort_by(|a,b|a.value.partial_cmp(&b.value).unwrap());
-    // let a: Vec<TopItem> = score_values
+    let comparator = if is_bottom {
+        |a: &TopItem, b: &TopItem| a.value.partial_cmp(&b.value).unwrap()
+    } else {
+        |a: &TopItem, b: &TopItem| b.value.partial_cmp(&a.value).unwrap()
+    };
+ 
+    // NO modifier included.Works for now.
+
+    // let check: Vec<_> = score_values
+    //     .clone()
+    //     .into_values()
+    //     // .map(|top_items| {
+    //     //     top_items
+    //     //         .iter()
+    //     //         .sorted_by(|a, b| a.value.partial_cmp(&b.value).unwrap())
+    //     //         .take(n)
+    //     //         .cloned()
+    //     //         .collect::<Vec<TopItem>>()
+    //     // })
+    //     .flat_map(|v| v)
+    //     .sorted_by(comparator)
+    //     .take(n)
+    //     .map(|v| data[v.index].clone())
+    //     .collect::<Vec<InstantValue>>();
+
+    println!("******************** Found different signatures ****************");
+    println!(
+        "******************** {:?} ****************",
+        score_values.keys()
+    );
     let check: Vec<_> = score_values
         .clone()
-        .into_values()
-        .flatten()
-        .sorted_by(|a, b| a.value.partial_cmp(&b.value).unwrap())
-        .map(|v| {
-            let instant_value = &data[v.index];
-            InstantValue {
-                labels: v.labels.clone(),
-                ..instant_value.clone()
-            }
-            // data[v.index].clone()
+        .values()
+        .map(|top_items| {
+            top_items
+                .iter()
+                .sorted_by(|a, b| comparator(a, b))
+                .take(n)
+                .cloned()
+                .collect::<Vec<TopItem>>()
         })
-        .collect();
-    println!("Score values raw {:?}", &check);
+        .flat_map(|v| v)
+        .sorted_by(|a, b| comparator(a, b))
+        // .take(n)
+        .map(|v| data[v.index].clone())
+        .collect::<Vec<InstantValue>>();
 
-    // let a: Vec<InstantValue> = score_values
-    //     .values()
-    //     .flatten()
-    //     .map(|top_items| {
-    //         top_items
-    //             .iter()
-    //             .sorted_by(|a, b| a.value.partial_cmp(&b.value).unwrap())
-    //             .take(n)
-    //             .cloned()
-    //             .collect::<Vec<TopItem>>()
-    //     })
-    //     .map(|v: TopItem| {
-    //         // let instant_value = &data[v.index];
-    //         // InstantValue {
-    //         //     labels: instant_value.labels.clone(),
-    //         //     ..instant_value.clone()
-    //         // }
-    //         // data[v.index].clone()
-    //         let instant_value = &data[v.index];
-    //         InstantValue {
-    //             labels: v.labels,
-    //             sample:instant_value.sample.clone()
-    //         }
-    //     })
-    //     .collect();
-
-    println!("Score values {:?}", &check);
-
-    // fn eval_top_processor(input:&[InstantValue], top_items:&[TopItem],  take: usize)-> Vec<InstantValue> {
-    //     let values = top_items
-    //         .into_par_iter()
-    //         .take(take)
-    //         .map(|v| {
-    //             let instant_value = &input[v.index];
-    //             InstantValue{
-    //                 labels: instant_value.labels.clone(),
-    //                 ..instant_value.clone()
-    //             }
-    //         })
-    //         .collect();
-    //         values
-    // }
     Ok(Value::Vector(check))
+    // Ok(Value::Vector(final_values))
 }
 
 pub(crate) fn eval_std_dev_var(
