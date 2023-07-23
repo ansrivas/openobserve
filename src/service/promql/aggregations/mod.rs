@@ -266,8 +266,8 @@ pub async fn eval_top(
                     // let mut item_labels = item.labels.hash_for_labels(labels);
                     // item_labels.sort();
                     
-                    let sum_labels = labels_to_include(&labels, &item.labels);
-                    let mut names = labels.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
+                    let sum_labels = labels_to_include(&labels.labels, &item.labels);
+                    let mut names = labels.labels.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
                     names.sort();
                     let signature = item.labels.hash_for_labels(&names);
                     eval_top_processor2(&mut score_values, signature, item.sample.value, index);
@@ -282,8 +282,8 @@ pub async fn eval_top(
                     // let mut item_labels = item.labels.clone();
                     // item_labels.sort();
 
-                    let sum_labels = labels_to_exclude(&labels, &item.labels);
-                    let mut names = labels.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
+                    let sum_labels = labels_to_exclude(&labels.labels, &item.labels);
+                    let mut names = labels.labels.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
                     names.sort();
                     let signature = item.labels.hash_for_labels(&names);
                     eval_top_processor2(&mut score_values, signature, item.sample.value, index);
