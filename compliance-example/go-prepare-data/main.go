@@ -19,20 +19,7 @@ func basicAuth(username, password string) string {
 	return base64.StdEncoding.EncodeToString([]byte(auth))
 }
 
-func main() {
-
-	// Ensure that we metrics from 3 sources
-	// Create two clients
-	// Push to both OO and Prometheus
-	// Save this data in some format ( binary or what-so-ever)
-	// Given path to this data ( sorted by timestamp or so??) Start ingesting data now - 30 minutes
-	// and keep adding 5s for each row
-	payload := CreatePayload("http://demo.promlabs.com:10000/metrics")
-	// fmt.Println(string(payload))
-	// payload := CreatePayload("http://demo.promlabs.com:10001/metrics")
-	// payload := CreatePayload("http://demo.promlabs.com:10002/metrics")
-
-	fmt.Println(string(payload))
+func parseAndReturn(payload []byte) []promremote.TimeSeries {
 	now := time.Now()
 	result := gjson.ParseBytes(payload)
 
@@ -48,6 +35,25 @@ func main() {
 		switch metricType {
 		case "gauge":
 			labels = append(labels, promremote.Label{Name: "__name__", Value: name})
+
+			// if value.Get("metrics.#.labels").Exists() {
+			// 	fmt.Println("labels found for ", name)
+
+			// 	value.Get("metrics.#.labels").ForEach(func(key, value gjson.Result) bool {
+			// 		fmt.Println(name, key, value, value.Get("metrics.#.value"))
+			// 		return true
+			// 	})
+			// } else {
+			// 	fmt.Println("No labels found for ", name)
+			// 	value.Get("metrics.#").ForEach(func(key, value gjson.Result) bool {
+			// 		fmt.Println(name, key, value, value.Get("metrics.#.value"))
+			// 		return true
+			// 	})
+			// }
+			value.Get("metrics.#").ForEach(func(key, v gjson.Result) bool {
+				fmt.Println(name, key, v, value.Get("metrics.#.value"))
+				return true
+			})
 			ts := promremote.TimeSeries{}
 			datapoint := promremote.Datapoint{Timestamp: now, Value: value.Get("metrics.0.value").Float()}
 			ts.Labels = labels
@@ -60,10 +66,30 @@ func main() {
 			ts.Labels = labels
 			ts.Datapoint = datapoint
 			timeSeriesList = append(timeSeriesList, ts)
+		default:
 		}
 
 		return true // keep iterating
 	})
+	return timeSeriesList
+}
+
+func main() {
+
+	// Ensure that we metrics from 3 sources
+	// Create two clients
+	// Push to both OO and Prometheus
+	// Save this data in some format ( binary or what-so-ever)
+	// Given path to this data ( sorted by timestamp or so??) Start ingesting data now - 30 minutes
+	// and keep adding 5s for each row
+	payload := CreatePayload("http://demo.promlabs.com:10000/metrics")
+	// fmt.Println(string(payload))
+	// payload := CreatePayload("http://demo.promlabs.com:10001/metrics")
+	// payload := CreatePayload("http://demo.promlabs.com:10002/metrics")
+
+	fmt.Println(string(payload))
+	timeSeriesList := parseAndReturn(payload)
+
 	// return
 	// create config and client
 	cfg := promremote.NewConfig(
