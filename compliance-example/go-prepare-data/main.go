@@ -30,7 +30,7 @@ func ReadPayload(now time.Time, instance, job string) [][]promremote.TimeSeries 
 	}
 	defer file.Close()
 
-	thirtyMinutesAgo := now.Add(-60 * time.Minute)
+	thirtyMinutesAgo := now.Add(-30 * time.Minute)
 
 	scanner := bufio.NewScanner(file)
 	addFiveSeconds := 5 * time.Second
@@ -220,6 +220,22 @@ func main() {
 		log.Println(result)
 	}
 
+	staticPayloads2 := ReadPayload(now, "demo.promlabs.com:10001", "job")
+	for _, payload := range staticPayloads2 {
+		result, err := client.WriteTimeSeries(context.Background(), payload, options)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Println(result)
+	}
+	staticPayloads3 := ReadPayload(now, "demo.promlabs.com:10002", "job")
+	for _, payload := range staticPayloads3 {
+		result, err := client.WriteTimeSeries(context.Background(), payload, options)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Println(result)
+	}
 	// for _, timeSeriesList := range timeserieses {
 	// 	result, err := client.WriteTimeSeries(context.Background(), timeSeriesList, options)
 	// 	if err != nil {
