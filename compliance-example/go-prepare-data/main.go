@@ -64,34 +64,24 @@ func parseAndReturn(payload []byte, now time.Time, instance, job string) []promr
 
 			labelsExist := len(value.Get("metrics.#.labels").Array()) != 0
 			if labelsExist {
-				// fmt.Println("labels found for ", name, value)
-
 				value.Get("metrics.#.labels").ForEach(func(key, v gjson.Result) bool {
 					var labels []promremote.Label
 					labels = append(labels, promremote.Label{Name: "__name__", Value: name})
 					labels = append(labels, promremote.Label{Name: "instance", Value: instance})
 					labels = append(labels, promremote.Label{Name: "job", Value: job})
 
-					// index := key.Int()
-					// fmt.Println("index ", index)
-					// valueOfLabel := fmt.Sprintf("metrics.%d.value", index)
-					// fmt.Println(name, "key->", key, "value->", v.Get("@keys"), "valueget->", value.Get(valueOfLabel))
 					v.ForEach(func(labelName, labelValue gjson.Result) bool {
 						labels = append(labels, promremote.Label{Name: labelName.String(), Value: labelValue.String()})
-
-						// fmt.Println("labelName->", labelName, "labelValue->", labelValue)
 						return true
 					})
 					ts := promremote.TimeSeries{}
 					datapoint := promremote.Datapoint{Timestamp: now, Value: value.Get("metrics.0.value").Float()}
 					ts.Labels = labels
 					ts.Datapoint = datapoint
-					// fmt.Println(ts)
 					timeSeriesList = append(timeSeriesList, ts)
 					return true
 				})
 			} else {
-				// fmt.Println("No labels found for ", name)
 				value.Get("metrics.#").ForEach(func(key, v gjson.Result) bool {
 					var labels []promremote.Label
 					labels = append(labels, promremote.Label{Name: "__name__", Value: name})
@@ -103,20 +93,79 @@ func parseAndReturn(payload []byte, now time.Time, instance, job string) []promr
 					ts.Datapoint = datapoint
 					ts.Labels = labels
 					timeSeriesList = append(timeSeriesList, ts)
-					// fmt.Println(name, key, v, value.Get("metrics.0.value").Float())
 					return true
 				})
 			}
 
-		// case "counter":
-		// 	var labels []promremote.Label
-		// 	labels = append(labels, promremote.Label{Name: "__name__", Value: name})
-		// 	labels = append(labels, promremote.Label{Name: "__name__", Value: name})
-		// 	ts := promremote.TimeSeries{}
-		// 	datapoint := promremote.Datapoint{Timestamp: now, Value: value.Get("metrics.0.value").Float()}
-		// 	ts.Labels = labels
-		// 	ts.Datapoint = datapoint
-		// 	timeSeriesList = append(timeSeriesList, ts)
+		case "counter":
+			labelsExist := len(value.Get("metrics.#.labels").Array()) != 0
+			if labelsExist {
+				value.Get("metrics.#.labels").ForEach(func(key, v gjson.Result) bool {
+					var labels []promremote.Label
+					labels = append(labels, promremote.Label{Name: "__name__", Value: name})
+					labels = append(labels, promremote.Label{Name: "instance", Value: instance})
+					labels = append(labels, promremote.Label{Name: "job", Value: job})
+
+					v.ForEach(func(labelName, labelValue gjson.Result) bool {
+						labels = append(labels, promremote.Label{Name: labelName.String(), Value: labelValue.String()})
+						return true
+					})
+					ts := promremote.TimeSeries{}
+					datapoint := promremote.Datapoint{Timestamp: now, Value: value.Get("metrics.0.value").Float()}
+					ts.Labels = labels
+					ts.Datapoint = datapoint
+					timeSeriesList = append(timeSeriesList, ts)
+					return true
+				})
+			} else {
+				value.Get("metrics.#").ForEach(func(key, v gjson.Result) bool {
+					var labels []promremote.Label
+					labels = append(labels, promremote.Label{Name: "__name__", Value: name})
+					labels = append(labels, promremote.Label{Name: "instance", Value: instance})
+					labels = append(labels, promremote.Label{Name: "job", Value: job})
+
+					ts := promremote.TimeSeries{}
+					datapoint := promremote.Datapoint{Timestamp: now, Value: value.Get("metrics.0.value").Float()}
+					ts.Datapoint = datapoint
+					ts.Labels = labels
+					timeSeriesList = append(timeSeriesList, ts)
+					return true
+				})
+			}
+		case "summary":
+
+			quantiles := value.Get("metrics.#.quantiles")
+			quantiles.ForEach(func(key, value gjson.Result) bool {
+				// countKey := fmt.Sprintf("metrics.%s.count", key.String())
+				// sumKey := fmt.Sprintf("metrics.%s.sum", key.String())
+
+				count := value.Get("metrics.0.count").Float()
+				sum := value.Get("metrics.0.sum").Float()
+				fmt.Println("count - >", count)
+				fmt.Println("sum - >", sum)
+
+				fmt.Println("key - >", key)
+				fmt.Println("value - >", value)
+				return true
+			})
+			// quantilesExist := len(value.Get("metrics.#.quantiles").Array()) != 0
+			// if quantilesExist {
+			// 	quantiles := value.Get("metrics.#.quantiles")
+			// 	fmt.Println("quantiles - >", quantiles)
+			// 	quantiles.ForEach(func(key, qvalues gjson.Result) bool {
+			// 		qvalues.ForEach(func(labelName, labelValue gjson.Result) bool {
+			// 			fmt.Println("labelName - >", labelName)
+			// 			fmt.Println("labelValue - >", labelValue)
+			// 			return true
+			// 		})
+			// 		return true
+			// 	})
+			// }
+
+			// // Ensure sum and count are also populated
+			// fmt.Println("cpint value ", value.Get("metrics.#.count"))
+			// fmt.Println("cpint sum ", value.Get("metrics.#.sum"))
+
 		default:
 		}
 
@@ -135,11 +184,11 @@ func main() {
 	// and keep adding 5s for each row
 
 	// /// Create payload start
-	// for i := 0; i < 100; i++ {
+	// for i := 0; i < 1000; i++ {
 	// 	CreatePayload("http://demo.promlabs.com:10000/metrics")
 	// 	CreatePayload("http://demo.promlabs.com:10001/metrics")
 	// 	CreatePayload("http://demo.promlabs.com:10002/metrics")
-	// 	time.Sleep(time.Second * 1)
+	// 	time.Sleep(time.Millisecond * 500)
 	// 	fmt.Println("Done writing - iteration #", i)
 	// }
 	// return
