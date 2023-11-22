@@ -16,6 +16,15 @@ import (
 	// protojson "google.golang.org/protobuf/encoding/protojson"
 )
 
+// Create a new array of labels
+func createNewLabels(name, instance, job string) []promremote.Label {
+	var labels []promremote.Label
+	labels = append(labels, promremote.Label{Name: "__name__", Value: name})
+	labels = append(labels, promremote.Label{Name: "instance", Value: instance})
+	labels = append(labels, promremote.Label{Name: "job", Value: job})
+	return labels
+}
+
 func basicAuth(username, password string) string {
 	auth := username + ":" + password
 	return base64.StdEncoding.EncodeToString([]byte(auth))
@@ -24,19 +33,25 @@ func basicAuth(username, password string) string {
 func ReadPayload(now time.Time, instance, job string) [][]promremote.TimeSeries {
 	var lines [][]promremote.TimeSeries
 
-	file, err := os.Open("file1.json")
+	fname := FileMap[instance]
+	log.Println("Reading file ", fname)
+	file, err := os.Open(fname)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer file.Close()
 
-	thirtyMinutesAgo := now.Add(-30 * time.Minute)
+	thirtyMinutesAgo := now.Add(-60 * time.Minute)
 
 	scanner := bufio.NewScanner(file)
 	addFiveSeconds := 5 * time.Second
 	// optionally, resize scanner's capacity for lines over 64K, see next example
 	for scanner.Scan() {
 		newNow := thirtyMinutesAgo.Add(addFiveSeconds)
+		if newNow.After(now) {
+			continue
+		}
+
 		timeseries := parseAndReturn(scanner.Bytes(), newNow, instance, job)
 		lines = append(lines, timeseries)
 		addFiveSeconds = addFiveSeconds + 5*time.Second
@@ -46,6 +61,33 @@ func ReadPayload(now time.Time, instance, job string) [][]promremote.TimeSeries 
 		log.Fatal(err)
 	}
 	return lines
+}
+
+func formatTimeSeries(timeseries []promremote.TimeSeries) string {
+	var sb strings.Builder
+	for _, ts := range timeseries {
+		sb.WriteString("{")
+		for j, label := range ts.Labels {
+			sb.WriteString(label.Name)
+			sb.WriteString("=")
+			sb.WriteString("\"")
+			sb.WriteString(label.Value)
+			sb.WriteString("\"")
+
+			if j != len(ts.Labels)-1 {
+				sb.WriteString(", ")
+			}
+		}
+
+		sb.WriteString("}")
+		sb.WriteString(fmt.Sprintf(" %v", ts.Datapoint.Value))
+		sb.WriteString("\n")
+		sb.WriteString("Datapoint: ")
+		sb.WriteString(fmt.Sprintf("Timestamp: %v, Value: %v", ts.Datapoint.Timestamp, ts.Datapoint.Value))
+		sb.WriteString("\n")
+
+	}
+	return sb.String()
 }
 
 func parseAndReturn(payload []byte, now time.Time, instance, job string) []promremote.TimeSeries {
@@ -65,11 +107,8 @@ func parseAndReturn(payload []byte, now time.Time, instance, job string) []promr
 			labelsExist := len(value.Get("metrics.#.labels").Array()) != 0
 			if labelsExist {
 				value.Get("metrics.#.labels").ForEach(func(key, v gjson.Result) bool {
-					var labels []promremote.Label
-					labels = append(labels, promremote.Label{Name: "__name__", Value: name})
-					labels = append(labels, promremote.Label{Name: "instance", Value: instance})
-					labels = append(labels, promremote.Label{Name: "job", Value: job})
 
+					labels := createNewLabels(name, instance, job)
 					v.ForEach(func(labelName, labelValue gjson.Result) bool {
 						labels = append(labels, promremote.Label{Name: labelName.String(), Value: labelValue.String()})
 						return true
@@ -83,10 +122,7 @@ func parseAndReturn(payload []byte, now time.Time, instance, job string) []promr
 				})
 			} else {
 				value.Get("metrics.#").ForEach(func(key, v gjson.Result) bool {
-					var labels []promremote.Label
-					labels = append(labels, promremote.Label{Name: "__name__", Value: name})
-					labels = append(labels, promremote.Label{Name: "instance", Value: instance})
-					labels = append(labels, promremote.Label{Name: "job", Value: job})
+					labels := createNewLabels(name, instance, job)
 
 					ts := promremote.TimeSeries{}
 					datapoint := promremote.Datapoint{Timestamp: now, Value: value.Get("metrics.0.value").Float()}
@@ -101,10 +137,7 @@ func parseAndReturn(payload []byte, now time.Time, instance, job string) []promr
 			labelsExist := len(value.Get("metrics.#.labels").Array()) != 0
 			if labelsExist {
 				value.Get("metrics.#.labels").ForEach(func(key, v gjson.Result) bool {
-					var labels []promremote.Label
-					labels = append(labels, promremote.Label{Name: "__name__", Value: name})
-					labels = append(labels, promremote.Label{Name: "instance", Value: instance})
-					labels = append(labels, promremote.Label{Name: "job", Value: job})
+					labels := createNewLabels(name, instance, job)
 
 					v.ForEach(func(labelName, labelValue gjson.Result) bool {
 						labels = append(labels, promremote.Label{Name: labelName.String(), Value: labelValue.String()})
@@ -119,10 +152,7 @@ func parseAndReturn(payload []byte, now time.Time, instance, job string) []promr
 				})
 			} else {
 				value.Get("metrics.#").ForEach(func(key, v gjson.Result) bool {
-					var labels []promremote.Label
-					labels = append(labels, promremote.Label{Name: "__name__", Value: name})
-					labels = append(labels, promremote.Label{Name: "instance", Value: instance})
-					labels = append(labels, promremote.Label{Name: "job", Value: job})
+					labels := createNewLabels(name, instance, job)
 
 					ts := promremote.TimeSeries{}
 					datapoint := promremote.Datapoint{Timestamp: now, Value: value.Get("metrics.0.value").Float()}
@@ -135,17 +165,47 @@ func parseAndReturn(payload []byte, now time.Time, instance, job string) []promr
 		case "summary":
 
 			quantiles := value.Get("metrics.#.quantiles")
-			quantiles.ForEach(func(key, value gjson.Result) bool {
-				// countKey := fmt.Sprintf("metrics.%s.count", key.String())
-				// sumKey := fmt.Sprintf("metrics.%s.sum", key.String())
+			quantiles.ForEach(func(qkey, qvalue gjson.Result) bool {
+				baseQuantileKey := "quantile"
+				countKey := fmt.Sprintf("metrics.%s.count", qkey.String())
+				sumKey := fmt.Sprintf("metrics.%s.sum", qkey.String())
 
-				count := value.Get("metrics.0.count").Float()
-				sum := value.Get("metrics.0.sum").Float()
-				fmt.Println("count - >", count)
-				fmt.Println("sum - >", sum)
+				qvalue.ForEach(func(qqkey, qqvalue gjson.Result) bool {
+					labels := createNewLabels(name, instance, job)
+					labels = append(labels, promremote.Label{Name: baseQuantileKey, Value: qqkey.String()})
 
-				fmt.Println("key - >", key)
-				fmt.Println("value - >", value)
+					ts := promremote.TimeSeries{}
+					datapoint := promremote.Datapoint{Timestamp: now, Value: qqvalue.Float()}
+					ts.Datapoint = datapoint
+					ts.Labels = labels
+					timeSeriesList = append(timeSeriesList, ts)
+
+					return true
+				})
+				count := value.Get(countKey)
+				sum := value.Get(sumKey)
+
+				sumLabel := fmt.Sprintf("%s_sum", name)
+				labels_sum := createNewLabels(sumLabel, instance, job)
+				ts := promremote.TimeSeries{}
+				datapoint := promremote.Datapoint{Timestamp: now, Value: sum.Float()}
+				ts.Datapoint = datapoint
+				ts.Labels = labels_sum
+				timeSeriesList = append(timeSeriesList, ts)
+
+				countLabel := fmt.Sprintf("%s_count", name)
+				labels_count := createNewLabels(countLabel, instance, job)
+				ts = promremote.TimeSeries{}
+				datapoint = promremote.Datapoint{Timestamp: now, Value: count.Float()}
+				ts.Datapoint = datapoint
+				ts.Labels = labels_count
+				timeSeriesList = append(timeSeriesList, ts)
+
+				// fmt.Println("count - >", count)
+				// fmt.Println("sum - >", sum)
+
+				// fmt.Println("qkey - >", qkey)
+				// fmt.Println("qvalue - >", qvalue)
 				return true
 			})
 			// quantilesExist := len(value.Get("metrics.#.quantiles").Array()) != 0
@@ -165,7 +225,51 @@ func parseAndReturn(payload []byte, now time.Time, instance, job string) []promr
 			// // Ensure sum and count are also populated
 			// fmt.Println("cpint value ", value.Get("metrics.#.count"))
 			// fmt.Println("cpint sum ", value.Get("metrics.#.sum"))
+		case "histogram":
+			eachHistogram := value.Get("metrics")
+			eachHistogram.ForEach(func(hkey, hvalue gjson.Result) bool {
+				newName := fmt.Sprintf("%s_bucket", name)
+				labels := createNewLabels(newName, instance, job)
+				hvalue.Get("labels").ForEach(func(labelKey, labelValue gjson.Result) bool {
+					labels = append(labels, promremote.Label{Name: labelKey.String(), Value: labelValue.String()})
+					return true
+				})
 
+				hvalue.Get("buckets").ForEach(func(bucketKey, bucketValue gjson.Result) bool {
+					labelsNew := make([]promremote.Label, len(labels))
+					copy(labelsNew, labels)
+					labelsNew = append(labelsNew, promremote.Label{Name: "le", Value: bucketKey.String()})
+
+					ts := promremote.TimeSeries{}
+					datapoint := promremote.Datapoint{Timestamp: now, Value: bucketValue.Float()}
+					ts.Datapoint = datapoint
+					ts.Labels = labelsNew
+					timeSeriesList = append(timeSeriesList, ts)
+					return true
+				})
+				countKey := fmt.Sprintf("metrics.%s.count", hkey.String())
+				sumKey := fmt.Sprintf("metrics.%s.sum", hkey.String())
+				count := value.Get(countKey)
+				sum := value.Get(sumKey)
+
+				sumLabel := fmt.Sprintf("%s_sum", name)
+				labels_sum := createNewLabels(sumLabel, instance, job)
+				ts := promremote.TimeSeries{}
+				datapoint := promremote.Datapoint{Timestamp: now, Value: sum.Float()}
+				ts.Datapoint = datapoint
+				ts.Labels = labels_sum
+				timeSeriesList = append(timeSeriesList, ts)
+
+				countLabel := fmt.Sprintf("%s_count", name)
+				labels_count := createNewLabels(countLabel, instance, job)
+				ts = promremote.TimeSeries{}
+				datapoint = promremote.Datapoint{Timestamp: now, Value: count.Float()}
+				ts.Datapoint = datapoint
+				ts.Labels = labels_count
+				timeSeriesList = append(timeSeriesList, ts)
+
+				return true
+			})
 		default:
 		}
 
@@ -174,14 +278,32 @@ func parseAndReturn(payload []byte, now time.Time, instance, job string) []promr
 	return timeSeriesList
 }
 
-func main() {
+func publishData(payloads [][]promremote.TimeSeries) {
+	ooClient := ooClient()
+	promClient := prometheusClient()
+	headers := make(map[string]string)
+	headers["Authorization"] = "Basic " + basicAuth("root@example.com", "Complexpass#123")
 
-	// Ensure that we metrics from 3 sources
-	// Create two clients
-	// Push to both OO and Prometheus
-	// Save this data in some format ( binary or what-so-ever)
-	// Given path to this data ( sorted by timestamp or so??) Start ingesting data now - 30 minutes
-	// and keep adding 5s for each row
+	options := promremote.WriteOptions{
+		Headers: headers,
+	}
+	for _, payload := range payloads {
+
+		result, err := ooClient.WriteTimeSeries(context.Background(), payload, options)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Println(result)
+
+		result, err = promClient.WriteTimeSeries(context.Background(), payload, options)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Println(result)
+	}
+}
+
+func main() {
 
 	// /// Create payload start
 	// for i := 0; i < 1000; i++ {
@@ -195,109 +317,15 @@ func main() {
 	// /// Create payload end
 
 	now := time.Now()
-	// payload1 := CreatePayload("http://demo.promlabs.com:10000/metrics")
-	// payload2 := CreatePayload("http://demo.promlabs.com:10001/metrics")
-	// payload3 := CreatePayload("http://demo.promlabs.com:10002/metrics")
 
-	// fmt.Println(string(payload1))
+	staticPayloads1 := ReadPayload(now, "http://demo.promlabs.com:10000/metrics", "job")
+	staticPayloads2 := ReadPayload(now, "http://demo.promlabs.com:10001/metrics", "job")
+	staticPayloads3 := ReadPayload(now, "http://demo.promlabs.com:10002/metrics", "job")
 
-	// timeSeriesList1 := parseAndReturn(payload1, now, "demo.promlabs.com:10000", "job")
-	// timeSeriesList2 := parseAndReturn(payload2, now, "demo.promlabs.com:10001", "job")
-	// timeSeriesList3 := parseAndReturn(payload3, now, "demo.promlabs.com:10002", "job")
-	// timeserieses := [][]promremote.TimeSeries{timeSeriesList1, timeSeriesList2, timeSeriesList3}
-	// // return
-	// // create config and client
-	// cfg := promremote.NewConfig(
-	// 	promremote.WriteURLOption("http://localhost:5080/api/default/prometheus/api/v1/write"),
-	// 	// promremote.WriteURLOption("http://localhost:9090/api/v1/write"),
-	// 	promremote.HTTPClientTimeoutOption(60*time.Second),
-	// )
+	publishData(staticPayloads1)
+	publishData(staticPayloads2)
+	publishData(staticPayloads3)
 
-	// client, err := promremote.NewClient(cfg)
-	// if err != nil {
-	// 	log.Fatal(fmt.Errorf("unable to construct client: %v", err))
-	// }
-
-	// timeSeriesList = []promremote.TimeSeries{
-	// 	promremote.TimeSeries{
-	// 		Labels: []promremote.Label{
-	// 			{
-	// 				Name:  "__name__",
-	// 				Value: "foo_bar",
-	// 			},
-	// 			{
-	// 				Name:  "biz",
-	// 				Value: "baz",
-	// 			},
-	// 		},
-	// 		Datapoint: promremote.Datapoint{
-	// 			Timestamp: time.Now(),
-	// 			Value:     1415.92,
-	// 		},
-	// 	},
-	// 	promremote.TimeSeries{
-	// 		Labels: []promremote.Label{
-	// 			{
-	// 				Name:  "__name__",
-	// 				Value: "foo_bar2",
-	// 			},
-	// 			{
-	// 				Name:  "biz",
-	// 				Value: "baz",
-	// 			},
-	// 		},
-	// 		Datapoint: promremote.Datapoint{
-	// 			Timestamp: time.Now(),
-	// 			Value:     1415.91,
-	// 		},
-	// 	},
-	// }
-
-	client := ooClient()
-	headers := make(map[string]string)
-	headers["Authorization"] = "Basic " + basicAuth("root@example.com", "Complexpass#123")
-
-	options := promremote.WriteOptions{
-		Headers: headers,
-	}
-	staticPayloads1 := ReadPayload(now, "demo.promlabs.com:10000", "job")
-	for _, payload := range staticPayloads1 {
-		result, err := client.WriteTimeSeries(context.Background(), payload, options)
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Println(result)
-	}
-
-	staticPayloads2 := ReadPayload(now, "demo.promlabs.com:10001", "job")
-	for _, payload := range staticPayloads2 {
-		result, err := client.WriteTimeSeries(context.Background(), payload, options)
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Println(result)
-	}
-	staticPayloads3 := ReadPayload(now, "demo.promlabs.com:10002", "job")
-	for _, payload := range staticPayloads3 {
-		result, err := client.WriteTimeSeries(context.Background(), payload, options)
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Println(result)
-	}
-	// for _, timeSeriesList := range timeserieses {
-	// 	result, err := client.WriteTimeSeries(context.Background(), timeSeriesList, options)
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
-	// 	log.Println(result)
-	// }
-	// ctx := context.Background()
-	// result2, err := client.WriteTimeSeries(ctx, timeSeriesList, options)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// log.Println(result2)
 }
 
 func ooClient() promremote.Client {
@@ -305,11 +333,14 @@ func ooClient() promremote.Client {
 	return client
 }
 
+func prometheusClient() promremote.Client {
+	client := createClientInner("http://localhost:9090/api/v1/write")
+	return client
+}
+
 func createClientInner(url string) promremote.Client {
-	// payloads1 := ReadPayload(now, "demo.promlabs.com:10000", "job")
 	cfg := promremote.NewConfig(
-		promremote.WriteURLOption("http://localhost:5080/api/default/prometheus/api/v1/write"),
-		// promremote.WriteURLOption("http://localhost:9090/api/v1/write"),
+		promremote.WriteURLOption(url),
 		promremote.HTTPClientTimeoutOption(60*time.Second),
 	)
 

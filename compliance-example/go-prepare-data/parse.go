@@ -38,7 +38,7 @@ import (
 
 // `, os.Args[0])
 
-var fileMap = map[string]string{
+var FileMap = map[string]string{
 	"http://demo.promlabs.com:10000/metrics": "file1.json",
 	"http://demo.promlabs.com:10001/metrics": "file2.json",
 	"http://demo.promlabs.com:10002/metrics": "file3.json",
@@ -125,7 +125,7 @@ func CreatePayload(serverUrl string) []byte {
 		os.Exit(1)
 	}
 
-	fileName := fileMap[serverUrl]
+	fileName := FileMap[serverUrl]
 	writeToFile(jsonText, fileName)
 	return jsonText
 	// if _, err := os.Stdout.Write(jsonText); err != nil {
