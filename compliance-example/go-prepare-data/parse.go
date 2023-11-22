@@ -38,6 +38,28 @@ import (
 
 // `, os.Args[0])
 
+var fileMap = map[string]string{
+	"http://demo.promlabs.com:10000/metrics": "file1.json",
+	"http://demo.promlabs.com:10001/metrics": "file2.json",
+	"http://demo.promlabs.com:10002/metrics": "file3.json",
+}
+
+func writeToFile(payload []byte, fileName string) {
+	// f, err := os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	f, err := os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		panic(err)
+	}
+
+	defer f.Close()
+
+	if _, err = f.Write(payload); err != nil {
+		panic(err)
+	}
+	f.Write([]byte("\n"))
+
+}
+
 func CreatePayload(serverUrl string) []byte {
 	// cert := flag.String("cert", "", "client certificate file")
 	// key := flag.String("key", "", "client certificate's key file")
@@ -103,6 +125,8 @@ func CreatePayload(serverUrl string) []byte {
 		os.Exit(1)
 	}
 
+	fileName := fileMap[serverUrl]
+	writeToFile(jsonText, fileName)
 	return jsonText
 	// if _, err := os.Stdout.Write(jsonText); err != nil {
 	// 	fmt.Fprintln(os.Stderr, "error writing to stdout:", err)
