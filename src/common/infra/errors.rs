@@ -43,6 +43,8 @@ pub enum Error {
     StringUTF8Error(#[from] std::string::FromUtf8Error),
     #[error("SqlxError# {0}")]
     SqlxError(#[from] sqlx::Error),
+    #[error("LdapError# {0}")]
+    LDAPError(#[from] ldap3::LdapError),
     #[error("Error# {0}")]
     Message(String),
     #[error("ErrorCode# {0}")]

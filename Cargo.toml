@@ -172,6 +172,8 @@ vrl = { version = "0.8.1", features = ["value", "compiler"] }
 walkdir = "2"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zstd = "0.13"
+ldap3 = { version = "0.11.3", features = ["rustls"] }
+leon = "2.0.1"
 
 [build-dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
