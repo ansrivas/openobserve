@@ -76,6 +76,8 @@ impl LdapAuthentication {
         let user_search_filter = template.render(&values).unwrap();
 
         println!("Searching for user with filter {:?}", &user_search_filter);
+        println!("Searching in base {:?}", &self.user_search_base);
+
         let user_dn_attribute = vec!["dn"];
         let (user_entries, _) = ldap
             .search(
@@ -146,7 +148,7 @@ impl LdapAuthentication {
 
         let bind = ldap.simple_bind(user, pass).await?;
         bind.success()?;
-        ldap.unbind().await?;
+        // ldap.unbind().await?;
         log::info!("LDAP authentication successful for {}", username);
         Ok(())
     }
@@ -229,18 +231,22 @@ mod tests {
             "cn=admin,dc=zinclabs,dc=com".to_string(),
             "admin".to_string(),
             "ou=users,dc=zinclabs,dc=com".to_string(),
-            "(&(objectClass=inetOrgPerson)(uid={id}))".to_string(),
+            "(uid={id})".to_string(),
+            // "(&(objectClass=inetOrgPerson)(uid={id}))".to_string(),
         );
 
         let (conn, mut ldap) = LdapConnAsync::new(&ldap_auth.url).await.unwrap();
         ldap3::drive!(conn);
 
         ldap_auth
-            .authenticate(ldap.clone(), "user4", "user4")
+            .authenticate(ldap.clone(), "user3", "user3")
             .await
-            .unwrap();
+            .expect("Authentication successful");
 
-        let response = ldap_auth.get_user_dn(ldap, "user4").await.unwrap();
+        let response = ldap_auth
+            .get_user_dn(ldap, "user3")
+            .await
+            .expect("Failed to get user-dn");
         println!("response: {:?}", response);
         assert!(false)
     }
