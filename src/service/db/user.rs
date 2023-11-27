@@ -114,6 +114,7 @@ pub async fn set(user: DBUser) -> Result<(), anyhow::Error> {
             token: org.token,
             rum_token: org.rum_token.clone(),
             salt: user.salt.clone(),
+            is_ldap: false,
         };
         USERS.insert(
             format!("{}/{}", org.name.clone(), user.email.clone()),

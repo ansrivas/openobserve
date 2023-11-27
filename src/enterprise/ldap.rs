@@ -70,12 +70,19 @@ impl LdapAuthentication {
         mut ldap: ldap3::Ldap,
         username: &str,
     ) -> Result<String, OpenObserveError> {
+        let template = Template::parse(&self.user_search_filter).unwrap();
+        let mut values = HashMap::new();
+        values.insert("id", username);
+        let user_search_filter = template.render(&values).unwrap();
+
+        println!("Searching for user with filter {:?}", &user_search_filter);
+        let user_dn_attribute = vec!["dn"];
         let (user_entries, _) = ldap
             .search(
                 &self.user_search_base,
                 Scope::Subtree,
-                &self.user_search_filter,
-                vec!["dn"],
+                &user_search_filter,
+                user_dn_attribute,
             )
             .await?
             .success()?;
@@ -208,5 +215,33 @@ impl LdapAuthentication {
 
         ldap.unbind().await?;
         Ok(groups.into_iter().flatten().collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_authentication() {
+        let ldap_auth = LdapAuthentication::new(
+            "ldap://localhost:389".to_string(),
+            "cn=admin,dc=zinclabs,dc=com".to_string(),
+            "admin".to_string(),
+            "ou=users,dc=zinclabs,dc=com".to_string(),
+            "(&(objectClass=inetOrgPerson)(uid={id}))".to_string(),
+        );
+
+        let (conn, mut ldap) = LdapConnAsync::new(&ldap_auth.url).await.unwrap();
+        ldap3::drive!(conn);
+
+        ldap_auth
+            .authenticate(ldap.clone(), "user4", "user4")
+            .await
+            .unwrap();
+
+        let response = ldap_auth.get_user_dn(ldap, "user4").await.unwrap();
+        println!("response: {:?}", response);
+        assert!(false)
     }
 }
