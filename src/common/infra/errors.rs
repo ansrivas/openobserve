@@ -45,6 +45,10 @@ pub enum Error {
     SqlxError(#[from] sqlx::Error),
     #[error("LdapError# {0}")]
     LDAPError(#[from] ldap3::LdapError),
+
+    #[error("LdapError# {0}")]
+    LdapCustomError(#[from] LdapCustomError),
+
     #[error("Error# {0}")]
     Message(String),
     #[error("ErrorCode# {0}")]
@@ -53,6 +57,15 @@ pub enum Error {
     NotImplemented,
     #[error("Unknown error")]
     Unknown,
+}
+
+#[derive(ThisError, Debug)]
+pub enum LdapCustomError {
+    #[error("User not found")]
+    UserNotFound,
+
+    #[error("Invalid ldap credentials")]
+    InvalidCredentials,
 }
 
 unsafe impl Send for Error {}

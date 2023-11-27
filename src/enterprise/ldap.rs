@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::common::infra::errors::Error as OpenObserveError;
+use crate::common::infra::errors::{Error as OpenObserveError, LdapCustomError};
 use ldap3::{result::Result as LdapResult, LdapConnAsync, LdapError, Scope, SearchEntry};
 use leon::Template;
 use std::collections::HashMap;
 
-pub struct Ldap {
+pub struct LdapAuthentication {
     /// Base URL of the LDAP server.
     pub url: String,
 
@@ -30,7 +30,7 @@ pub struct Ldap {
     // pub search_base_dns: String,
 }
 
-impl Ldap {
+impl LdapAuthentication {
     pub fn new(
         url: String,
 
@@ -38,8 +38,8 @@ impl Ldap {
         bind_password: String,
         user_search_base: String,
         user_search_filter: String,
-    ) -> Ldap {
-        Ldap {
+    ) -> LdapAuthentication {
+        LdapAuthentication {
             url,
             bind_dn,
             bind_password,
@@ -48,20 +48,96 @@ impl Ldap {
         }
     }
 
+    async fn sanitize_group_query(dn: &str) -> &str {
+        return "";
+    }
+
+    async fn sanitize_group_filter(dn: &str) -> &str {
+        return "";
+    }
+
+    async fn sanitize_user_query(dn: &str) -> &str {
+        return "";
+    }
+
+    async fn sanitize_user_dn(dn: &str) -> &str {
+        return "";
+    }
+
+    /// Find user dn from username
+    pub async fn get_user_dn(
+        &self,
+        mut ldap: ldap3::Ldap,
+        username: &str,
+    ) -> Result<String, OpenObserveError> {
+        let (user_entries, _) = ldap
+            .search(
+                &self.user_search_base,
+                Scope::Subtree,
+                &self.user_search_filter,
+                vec!["dn"],
+            )
+            .await?
+            .success()?;
+
+        let user_entries_len = user_entries.len();
+        if user_entries_len < 1 {
+            log::debug!("Failed search using filter  {:?}", &self.user_search_filter);
+            return Err(OpenObserveError::LdapCustomError(
+                LdapCustomError::UserNotFound,
+            ));
+        } else if user_entries_len > 1 {
+            log::debug!(
+                "Filter '{:?}' returned more than one user.",
+                &self.user_search_filter
+            );
+            return Err(OpenObserveError::LdapCustomError(
+                LdapCustomError::UserNotFound,
+            ));
+        };
+
+        let user_dn = SearchEntry::construct(user_entries[0].clone()).dn;
+        if user_dn == "" {
+            log::error!("LDAP search was successful, but found no DN!");
+            return Err(OpenObserveError::LdapCustomError(
+                LdapCustomError::UserNotFound,
+            ));
+        }
+
+        return Ok(user_dn);
+    }
+
+    /// List all the groups of a given user
+    pub async fn list_user_groups(
+        &self,
+        mut ldap: ldap3::Ldap,
+        uid: &str,
+        group_filter: &str,
+    ) -> Result<Vec<String>, OpenObserveError> {
+        Ok(vec![])
+    }
+
     /// Authenticate a user against the LDAP server.
     pub async fn authenticate(
         &self,
+        mut ldap: ldap3::Ldap,
         username: &str,
         password: &str,
     ) -> Result<(), OpenObserveError> {
-        let user_dn = format!("uid={},{}", username, self.bind_dn); // DN of the user
-
         // Establish LDAP connection
-        let (conn, mut ldap) = LdapConnAsync::new(&self.url).await?;
-        ldap3::drive!(conn);
+        // let (conn, mut ldap) = LdapConnAsync::new(&self.url).await?;
+        // ldap3::drive!(conn);
 
-        let bind = ldap.simple_bind(&user_dn, password).await?;
-        log::info!("");
+        // Authenticate using bind-dn, ensuring that self.bind_dn and self.bind_password isnt empty
+        let (user, pass) = if !self.bind_dn.is_empty() && !self.bind_password.is_empty() {
+            log::debug!("Using bind-dn login for LDAP authentication");
+            (self.bind_dn.as_ref(), self.bind_password.as_ref())
+        } else {
+            log::debug!("Using anonymous login for LDAP authentication");
+            (username, password)
+        };
+
+        let bind = ldap.simple_bind(user, pass).await?;
         bind.success()?;
         ldap.unbind().await?;
         log::info!("LDAP authentication successful for {}", username);
@@ -78,7 +154,7 @@ impl Ldap {
             .success()?;
 
         // let user = "user4";
-        let user = username;
+        // let user = username;
         // Step 1: Find the DN of the user
 
         let template = Template::parse(&self.user_search_filter).unwrap();

@@ -412,6 +412,7 @@ mod tests {
                 first_name: "admin".to_owned(),
                 last_name: "".to_owned(),
                 org: "dummy".to_string(),
+                is_ldap: false,
             },
         );
     }
@@ -478,6 +479,7 @@ mod tests {
                 first_name: "admin".to_owned(),
                 last_name: "".to_owned(),
                 org: "dummy".to_string(),
+                is_ldap: false,
             },
         );
 

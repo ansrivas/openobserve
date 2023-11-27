@@ -90,6 +90,7 @@ impl DBUser {
             token: org.token.clone(),
             rum_token: org.rum_token.clone(),
             salt: local.salt,
+            is_ldap: false,
         })
     }
 
@@ -109,6 +110,7 @@ impl DBUser {
                     token: org.token,
                     rum_token: org.rum_token,
                     salt: self.salt.clone(),
+                    is_ldap: false,
                 })
             }
             ret_val
@@ -131,6 +133,9 @@ pub struct User {
     pub rum_token: Option<String>,
     pub role: UserRole,
     pub org: String,
+
+    /// Is the user authenticated and created via LDAP
+    pub is_ldap: bool,
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, ToSchema)]
