@@ -53,19 +53,29 @@ impl LdapAuthentication {
     }
 
     async fn sanitize_group_query(dn: &str) -> &str {
-        return "";
+        ""
     }
 
     async fn sanitize_group_filter(dn: &str) -> &str {
-        return "";
+        ""
     }
 
     async fn sanitize_user_query(dn: &str) -> &str {
-        return "";
+        ""
     }
 
     async fn sanitize_user_dn(dn: &str) -> &str {
-        return "";
+        ""
+    }
+
+    /// Parse the incoming template. The template is expected to have an `id`
+    fn parse_templates(
+        &self,
+        query: &str,
+        values: &HashMap<&str, &str>,
+    ) -> Result<String, OpenObserveError> {
+        let template = Template::parse(query)?;
+        template.render(values).map_err(|e| e.into())
     }
 
     /// Find user dn from username
@@ -74,10 +84,9 @@ impl LdapAuthentication {
         mut ldap: ldap3::Ldap,
         username: &str,
     ) -> Result<String, OpenObserveError> {
-        let template = Template::parse(&self.user_search_filter).unwrap();
         let mut values = HashMap::new();
         values.insert("id", username);
-        let user_search_filter = template.render(&values).unwrap();
+        let user_search_filter = self.parse_templates(&self.user_search_filter, &values)?;
 
         println!("Searching for user with filter {:?}", &user_search_filter);
         println!("Searching in base {:?}", &self.user_search_base);
@@ -94,7 +103,7 @@ impl LdapAuthentication {
             .success()?;
 
         let user_entries_len = user_entries.len();
-        if user_entries_len < 1 {
+        if user_entries.is_empty() {
             log::debug!("Failed search using filter  {:?}", &self.user_search_filter);
             return Err(OpenObserveError::LdapCustomError(
                 LdapCustomError::UserNotFound,
@@ -105,19 +114,19 @@ impl LdapAuthentication {
                 &self.user_search_filter
             );
             return Err(OpenObserveError::LdapCustomError(
-                LdapCustomError::UserNotFound,
+                LdapCustomError::MultipleUsersFound,
             ));
         };
 
         let user_dn = SearchEntry::construct(user_entries[0].clone()).dn;
-        if user_dn == "" {
+        if user_dn.is_empty() {
             log::error!("LDAP search was successful, but found no DN!");
             return Err(OpenObserveError::LdapCustomError(
                 LdapCustomError::UserNotFound,
             ));
         }
 
-        return Ok(user_dn);
+        Ok(user_dn)
     }
 
     /// Get all the groups of a given user
@@ -126,11 +135,9 @@ impl LdapAuthentication {
         mut ldap: ldap3::Ldap,
         user_dn: &str,
     ) -> Result<Vec<String>, OpenObserveError> {
-        // let group_search_filter = format!("(member={})", user_dn);
-        let template = Template::parse(&self.group_search_filter).unwrap();
         let mut values = HashMap::new();
         values.insert("id", user_dn);
-        let group_search_filter = template.render(&values).unwrap();
+        let group_search_filter = self.parse_templates(&self.group_search_filter, &values)?;
 
         println!(
             "Searching for groups with filter {:?}",
@@ -170,10 +177,6 @@ impl LdapAuthentication {
         username: &str,
         password: &str,
     ) -> Result<(), OpenObserveError> {
-        // Establish LDAP connection
-        // let (conn, mut ldap) = LdapConnAsync::new(&self.url).await?;
-        // ldap3::drive!(conn);
-
         // Authenticate using bind-dn, ensuring that self.bind_dn and self.bind_password isnt empty
         let (user, pass) = if !self.bind_dn.is_empty() && !self.bind_password.is_empty() {
             log::debug!("Using bind-dn login for LDAP authentication");
@@ -185,7 +188,6 @@ impl LdapAuthentication {
 
         let bind = ldap.simple_bind(user, pass).await?;
         bind.success()?;
-        // ldap.unbind().await?;
         log::info!("LDAP authentication successful for {}", username);
         Ok(())
     }

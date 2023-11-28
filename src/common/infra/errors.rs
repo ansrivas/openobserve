@@ -43,11 +43,16 @@ pub enum Error {
     StringUTF8Error(#[from] std::string::FromUtf8Error),
     #[error("SqlxError# {0}")]
     SqlxError(#[from] sqlx::Error),
-    #[error("LdapError# {0}")]
-    LDAPError(#[from] ldap3::LdapError),
 
     #[error("LdapError# {0}")]
+    LDAPError(#[from] ldap3::LdapError),
+    #[error("LdapError# {0}")]
     LdapCustomError(#[from] LdapCustomError),
+
+    #[error("LdapTemplateParseError# {0}")]
+    LdapTemplateParseError(#[from] leon::ParseError),
+    #[error("LdapTemplateRenderError# {0}")]
+    LdapTemplateRenderError(#[from] leon::RenderError),
 
     #[error("Error# {0}")]
     Message(String),
@@ -63,6 +68,9 @@ pub enum Error {
 pub enum LdapCustomError {
     #[error("User not found")]
     UserNotFound,
+
+    #[error("Multiple users found")]
+    MultipleUsersFound,
 
     #[error("Invalid ldap credentials")]
     InvalidCredentials,
