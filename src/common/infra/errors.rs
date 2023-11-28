@@ -74,6 +74,9 @@ pub enum LdapCustomError {
 
     #[error("Invalid ldap credentials")]
     InvalidCredentials,
+
+    #[error("Attribute not found {0}")]
+    AttributeNotFound(String),
 }
 
 unsafe impl Send for Error {}

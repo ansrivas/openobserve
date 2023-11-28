@@ -15,8 +15,10 @@
 use crate::common::infra::errors::{Error as OpenObserveError, LdapCustomError};
 use ldap3::{result::Result as LdapResult, LdapConnAsync, LdapError, Scope, SearchEntry};
 use leon::Template;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct LdapAuthentication {
     /// Base URL of the LDAP server.
     pub url: String,
@@ -28,6 +30,29 @@ pub struct LdapAuthentication {
     pub user_search_filter: String,
     pub group_search_filter: String,
     pub group_search_base: String,
+
+    pub username_attribute: Option<String>,
+    pub first_name_attribute: Option<String>,
+    pub last_name_attribute: Option<String>,
+    pub email_attribute: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+
+pub struct LdapUserAttributes {
+    pub email: String,
+    pub firstname: String,
+    pub lastname: String,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct LdapUser {
+    pub dn: String,
+
+    /// The username which will be fetched based on an attribute.
+    pub username: String,
+    pub groups: Vec<String>,
+    pub attributes: LdapUserAttributes,
 }
 
 impl LdapAuthentication {
@@ -40,6 +65,9 @@ impl LdapAuthentication {
         user_search_filter: String,
         group_search_filter: String,
         group_search_base: String,
+        email_attribute: Option<String>,
+        first_name_attribute: Option<String>,
+        last_name_attribute: Option<String>,
     ) -> LdapAuthentication {
         LdapAuthentication {
             url,
@@ -49,6 +77,10 @@ impl LdapAuthentication {
             user_search_filter,
             group_search_filter,
             group_search_base,
+            email_attribute: email_attribute,
+            first_name_attribute: first_name_attribute,
+            last_name_attribute: last_name_attribute,
+            ..Default::default()
         }
     }
 
@@ -78,12 +110,30 @@ impl LdapAuthentication {
         template.render(values).map_err(|e| e.into())
     }
 
+    fn get_attribute_from_entry(
+        &self,
+        entry: &SearchEntry,
+        attribute: &str,
+    ) -> Result<String, OpenObserveError> {
+        let attribute = entry
+            .attrs
+            .get(attribute)
+            .ok_or(OpenObserveError::LdapCustomError(
+                LdapCustomError::AttributeNotFound(attribute.to_string()),
+            ))?
+            .first()
+            .ok_or(OpenObserveError::LdapCustomError(
+                LdapCustomError::AttributeNotFound(attribute.to_string()),
+            ))?
+            .clone();
+        Ok(attribute)
+    }
     /// Find user dn from username
-    pub async fn get_user_dn(
+    pub async fn get_user(
         &self,
         mut ldap: ldap3::Ldap,
         username: &str,
-    ) -> Result<String, OpenObserveError> {
+    ) -> Result<LdapUser, OpenObserveError> {
         let mut values = HashMap::new();
         values.insert("id", username);
         let user_search_filter = self.parse_templates(&self.user_search_filter, &values)?;
@@ -91,13 +141,13 @@ impl LdapAuthentication {
         println!("Searching for user with filter {:?}", &user_search_filter);
         println!("Searching in base {:?}", &self.user_search_base);
 
-        let user_dn_attribute = vec!["dn"];
+        let user_attributes = vec!["*"];
         let (user_entries, _) = ldap
             .search(
                 &self.user_search_base,
                 Scope::Subtree,
                 &user_search_filter,
-                user_dn_attribute,
+                user_attributes,
             )
             .await?
             .success()?;
@@ -118,15 +168,35 @@ impl LdapAuthentication {
             ));
         };
 
-        let user_dn = SearchEntry::construct(user_entries[0].clone()).dn;
-        if user_dn.is_empty() {
+        let user_entry = SearchEntry::construct(user_entries[0].clone());
+        if user_entry.dn.is_empty() {
             log::error!("LDAP search was successful, but found no DN!");
             return Err(OpenObserveError::LdapCustomError(
                 LdapCustomError::UserNotFound,
             ));
         }
 
-        Ok(user_dn)
+        let email_attribute = self.email_attribute.clone().unwrap_or("mail".into());
+        let ldap_user = LdapUser {
+            dn: user_entry.dn.clone(),
+            username: username.to_string(),
+            groups: vec![],
+            attributes: LdapUserAttributes {
+                email: self.get_attribute_from_entry(&user_entry, &email_attribute)?,
+                firstname: self.get_attribute_from_entry(
+                    &user_entry,
+                    &self
+                        .first_name_attribute
+                        .clone()
+                        .unwrap_or("givenName".into()),
+                )?,
+                lastname: self.get_attribute_from_entry(
+                    &user_entry,
+                    &self.last_name_attribute.clone().unwrap_or("sn".into()),
+                )?,
+            },
+        };
+        Ok(ldap_user)
     }
 
     /// Get all the groups of a given user
@@ -176,9 +246,9 @@ impl LdapAuthentication {
         mut ldap: ldap3::Ldap,
         username: &str,
         password: &str,
+        use_bind_dn: bool,
     ) -> Result<(), OpenObserveError> {
-        // Authenticate using bind-dn, ensuring that self.bind_dn and self.bind_password isnt empty
-        let (user, pass) = if !self.bind_dn.is_empty() && !self.bind_password.is_empty() {
+        let (user, pass) = if use_bind_dn {
             log::debug!("Using bind-dn login for LDAP authentication");
             (self.bind_dn.as_ref(), self.bind_password.as_ref())
         } else {
@@ -207,26 +277,39 @@ mod tests {
             "(&(objectClass=inetOrgPerson)(uid={id}))".to_string(),
             "(&(objectClass=groupOfUniqueNames)(uniqueMember={id}))".to_string(),
             "ou=teams,dc=zinclabs,dc=com".to_string(),
+            Some("mail".to_string()),
+            Some("givenName".to_string()),
+            Some("sn".to_string()),
         );
 
+        let (user, pass) = ("user3", "user31");
         let (conn, mut ldap) = LdapConnAsync::new(&ldap_auth.url).await.unwrap();
         ldap3::drive!(conn);
 
         ldap_auth
-            .authenticate(ldap.clone(), "", "")
+            .authenticate(ldap.clone(), user, pass, false)
+            .await
+            .expect("Authentication with anonymous loging unsuccessful");
+
+        // Now lets try to login using bind_dn
+        let use_bind_dn = !ldap_auth.bind_dn.is_empty() && !ldap_auth.bind_password.is_empty();
+        // This will pass, because bind_dn and bind_pass are not empty
+        ldap_auth
+            .authenticate(ldap.clone(), user, pass, use_bind_dn)
             .await
             .expect("Authentication successful");
 
         let response = ldap_auth
-            .get_user_dn(ldap.clone(), "user3")
+            .get_user(ldap.clone(), "user3")
             .await
-            .expect("Failed to get user-dn");
+            .expect("Failed to get user");
         println!("response: {:?}", response);
 
         let response = ldap_auth
-            .get_user_groups(ldap.clone(), &response)
+            .get_user_groups(ldap.clone(), &response.dn)
             .await
             .unwrap();
+
         println!("response: {:?}", response);
         ldap.unbind().await.expect("Failed to unbind");
         assert!(false)
