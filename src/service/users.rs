@@ -35,6 +35,7 @@ use crate::common::{
 };
 
 pub async fn post_user(org_id: &str, usr_req: UserRequest) -> Result<HttpResponse, Error> {
+    println!("What is happening??");
     let existing_user = if is_root_user(&usr_req.email) {
         db::user::get(None, &usr_req.email).await
     } else {
@@ -47,7 +48,9 @@ pub async fn post_user(org_id: &str, usr_req: UserRequest) -> Result<HttpRespons
         let rum_token = format!("rum{}", generate_random_string(16));
         let user =
             usr_req.to_new_dbuser(password, salt, org_id.replace(' ', "_"), token, rum_token);
+        println!("Created the user??? {:?}", &user);
         db::user::set(user).await.unwrap();
+
         Ok(HttpResponse::Ok().json(MetaHttpResponse::message(
             http::StatusCode::OK.into(),
             "User saved successfully".to_string(),

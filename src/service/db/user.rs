@@ -95,12 +95,15 @@ pub async fn get_db_user(name: &str) -> Result<DBUser, anyhow::Error> {
 pub async fn set(user: DBUser) -> Result<(), anyhow::Error> {
     let db = infra_db::get_db().await;
     let key = format!("/user/{}", user.email);
+    println!("before setting What is happening??");
+
     db.put(
         &key,
         json::to_vec(&user).unwrap().into(),
         infra_db::NEED_WATCH,
     )
     .await?;
+    println!("after setting What is happening??");
 
     // cache user
     for org in user.organizations {

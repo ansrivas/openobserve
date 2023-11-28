@@ -272,6 +272,8 @@ impl LdapAuthentication {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::meta;
+    use crate::service::users;
 
     #[tokio::test]
     async fn test_authentication() {
@@ -327,6 +329,24 @@ mod tests {
             .unwrap();
 
         println!("groups: {:?}", groups);
+
+        for group in groups {
+            let group = group.split(",").next().unwrap().split("=").last().unwrap();
+            println!("group: {:?}", group);
+            let _ = users::post_user(
+                group,
+                meta::user::UserRequest {
+                    email: format!("{}@zinclabs.com", group),
+                    password: "password".to_owned(),
+                    role: meta::user::UserRole::Admin,
+                    first_name: "admin".to_owned(),
+                    last_name: "".to_owned(),
+                },
+            )
+            .await
+            .unwrap();
+        }
+
         ldap.unbind().await.expect("Failed to unbind");
         assert!(false)
     }
