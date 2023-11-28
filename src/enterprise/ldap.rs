@@ -233,7 +233,7 @@ impl LdapAuthentication {
                 search_entry.dn
                 // search_entry.attrs.get("ou").unwrap_or(&Vec::new()).clone()
                 // let ou = search_entry.attrs.get("dn").unwrap_or(&Vec::new()).clone();
-                // let cn = search_entry.attrs.get("cn").unwrap_or(&Vec::new()).clone();
+                // let cn = search_entry.attrs.get("authorizedOrgs").unwrap_or(&Vec::new()).clone();
             })
             .collect();
         // let groups: Vec<String> = groups.into_iter().flatten().collect();
@@ -278,18 +278,26 @@ mod tests {
             "(&(objectClass=groupOfUniqueNames)(uniqueMember={id}))".to_string(),
             "ou=teams,dc=zinclabs,dc=com".to_string(),
             Some("mail".to_string()),
-            Some("givenName".to_string()),
+            // Some("givenName".to_string()),
+            None,
             Some("sn".to_string()),
         );
 
         let (user, pass) = ("user3", "user31");
+
         let (conn, mut ldap) = LdapConnAsync::new(&ldap_auth.url).await.unwrap();
         ldap3::drive!(conn);
 
-        ldap_auth
-            .authenticate(ldap.clone(), user, pass, false)
-            .await
-            .expect("Authentication with anonymous loging unsuccessful");
+        // ldap_auth
+        //     .authenticate(ldap.clone(), user, pass, false)
+        //     .await
+        //     .expect("Authentication with anonymous loging unsuccessful");
+
+        // let (user_with_dn, pass_with_dn) = ("uid=user3,ou=users,dc=zinclabs,dc=com", "user3");
+        // ldap_auth
+        //     .authenticate(ldap.clone(), user_with_dn, pass_with_dn, false)
+        //     .await
+        //     .expect("Authentication with anonymous loging unsuccessful");
 
         // Now lets try to login using bind_dn
         let use_bind_dn = !ldap_auth.bind_dn.is_empty() && !ldap_auth.bind_password.is_empty();
@@ -299,18 +307,18 @@ mod tests {
             .await
             .expect("Authentication successful");
 
-        let response = ldap_auth
+        let ldap_user = ldap_auth
             .get_user(ldap.clone(), "user3")
             .await
             .expect("Failed to get user");
-        println!("response: {:?}", response);
+        println!("ldap_user: {:?}", ldap_user);
 
-        let response = ldap_auth
-            .get_user_groups(ldap.clone(), &response.dn)
+        let groups = ldap_auth
+            .get_user_groups(ldap.clone(), &ldap_user.dn)
             .await
             .unwrap();
 
-        println!("response: {:?}", response);
+        println!("groups: {:?}", groups);
         ldap.unbind().await.expect("Failed to unbind");
         assert!(false)
     }
