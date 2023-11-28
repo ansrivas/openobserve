@@ -182,18 +182,24 @@ impl LdapAuthentication {
             username: username.to_string(),
             groups: vec![],
             attributes: LdapUserAttributes {
-                email: self.get_attribute_from_entry(&user_entry, &email_attribute)?,
-                firstname: self.get_attribute_from_entry(
-                    &user_entry,
-                    &self
-                        .first_name_attribute
-                        .clone()
-                        .unwrap_or("givenName".into()),
-                )?,
-                lastname: self.get_attribute_from_entry(
-                    &user_entry,
-                    &self.last_name_attribute.clone().unwrap_or("sn".into()),
-                )?,
+                email: self
+                    .get_attribute_from_entry(&user_entry, &email_attribute)
+                    .unwrap_or_default(),
+                firstname: self
+                    .get_attribute_from_entry(
+                        &user_entry,
+                        &self
+                            .first_name_attribute
+                            .clone()
+                            .unwrap_or("givenName".into()),
+                    )
+                    .unwrap_or_default(),
+                lastname: self
+                    .get_attribute_from_entry(
+                        &user_entry,
+                        &self.last_name_attribute.clone().unwrap_or("sn".into()),
+                    )
+                    .unwrap_or_default(),
             },
         };
         Ok(ldap_user)
@@ -278,8 +284,7 @@ mod tests {
             "(&(objectClass=groupOfUniqueNames)(uniqueMember={id}))".to_string(),
             "ou=teams,dc=zinclabs,dc=com".to_string(),
             Some("mail".to_string()),
-            // Some("givenName".to_string()),
-            None,
+            Some("givenName".to_string()),
             Some("sn".to_string()),
         );
 
@@ -288,16 +293,19 @@ mod tests {
         let (conn, mut ldap) = LdapConnAsync::new(&ldap_auth.url).await.unwrap();
         ldap3::drive!(conn);
 
-        // ldap_auth
-        //     .authenticate(ldap.clone(), user, pass, false)
-        //     .await
-        //     .expect("Authentication with anonymous loging unsuccessful");
+        let is_authenticated = ldap_auth
+            .authenticate(ldap.clone(), user, pass, false)
+            .await;
+        println!(
+            "is_authenticated invalid pass: {:?}",
+            is_authenticated.is_ok()
+        );
 
-        // let (user_with_dn, pass_with_dn) = ("uid=user3,ou=users,dc=zinclabs,dc=com", "user3");
-        // ldap_auth
-        //     .authenticate(ldap.clone(), user_with_dn, pass_with_dn, false)
-        //     .await
-        //     .expect("Authentication with anonymous loging unsuccessful");
+        let (user_with_dn, pass_with_dn) = ("uid=user3,ou=users,dc=zinclabs,dc=com", "user3");
+        ldap_auth
+            .authenticate(ldap.clone(), user_with_dn, pass_with_dn, false)
+            .await
+            .expect("Authentication with anonymous loging unsuccessful");
 
         // Now lets try to login using bind_dn
         let use_bind_dn = !ldap_auth.bind_dn.is_empty() && !ldap_auth.bind_password.is_empty();
