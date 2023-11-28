@@ -26,8 +26,8 @@ pub struct LdapAuthentication {
 
     pub user_search_base: String,
     pub user_search_filter: String,
-    // pub search_filter: String,
-    // pub search_base_dns: String,
+    pub group_search_filter: String,
+    pub group_search_base: String,
 }
 
 impl LdapAuthentication {
@@ -38,6 +38,8 @@ impl LdapAuthentication {
         bind_password: String,
         user_search_base: String,
         user_search_filter: String,
+        group_search_filter: String,
+        group_search_base: String,
     ) -> LdapAuthentication {
         LdapAuthentication {
             url,
@@ -45,6 +47,8 @@ impl LdapAuthentication {
             bind_password,
             user_search_base,
             user_search_filter,
+            group_search_filter,
+            group_search_base,
         }
     }
 
@@ -116,14 +120,47 @@ impl LdapAuthentication {
         return Ok(user_dn);
     }
 
-    /// List all the groups of a given user
-    pub async fn list_user_groups(
+    /// Get all the groups of a given user
+    pub async fn get_user_groups(
         &self,
         mut ldap: ldap3::Ldap,
-        uid: &str,
-        group_filter: &str,
+        user_dn: &str,
     ) -> Result<Vec<String>, OpenObserveError> {
-        Ok(vec![])
+        // let group_search_filter = format!("(member={})", user_dn);
+        let template = Template::parse(&self.group_search_filter).unwrap();
+        let mut values = HashMap::new();
+        values.insert("id", user_dn);
+        let group_search_filter = template.render(&values).unwrap();
+
+        println!(
+            "Searching for groups with filter {:?}",
+            &group_search_filter
+        );
+        println!("Searching in base {:?}", &self.group_search_base);
+
+        let (group_entries, _) = ldap
+            .search(
+                &self.group_search_base,
+                Scope::Subtree,
+                &group_search_filter,
+                vec!["*"],
+            )
+            .await?
+            .success()?;
+
+        let groups: Vec<String> = group_entries
+            // let groups: Vec<Vec<String>> = group_entries
+            .into_iter()
+            .map(|entry| {
+                let search_entry = SearchEntry::construct(entry);
+                search_entry.dn
+                // search_entry.attrs.get("ou").unwrap_or(&Vec::new()).clone()
+                // let ou = search_entry.attrs.get("dn").unwrap_or(&Vec::new()).clone();
+                // let cn = search_entry.attrs.get("cn").unwrap_or(&Vec::new()).clone();
+            })
+            .collect();
+        // let groups: Vec<String> = groups.into_iter().flatten().collect();
+        Ok(groups)
     }
 
     /// Authenticate a user against the LDAP server.
@@ -152,72 +189,6 @@ impl LdapAuthentication {
         log::info!("LDAP authentication successful for {}", username);
         Ok(())
     }
-
-    /// List all the ldap groups, a user belongs to
-    pub async fn list(&self, username: &str) -> Result<Vec<String>, OpenObserveError> {
-        // Establish LDAP connection asynchronously
-        let (conn, mut ldap) = LdapConnAsync::new(&self.url).await?;
-        ldap3::drive!(conn);
-        ldap.simple_bind(&self.bind_dn, &self.bind_password)
-            .await?
-            .success()?;
-
-        // let user = "user4";
-        // let user = username;
-        // Step 1: Find the DN of the user
-
-        let template = Template::parse(&self.user_search_filter).unwrap();
-        let mut values = HashMap::new();
-        values.insert("id", username);
-        let user_search_filter = template.render(&values).unwrap();
-        let (user_entries, _) = ldap
-            .search(
-                "ou=users,dc=myorg,dc=com",
-                Scope::Subtree,
-                &user_search_filter,
-                vec!["dn"],
-            )
-            .await?
-            .success()?;
-
-        let groups = if let Some(user_entry) = user_entries.into_iter().next() {
-            let user_dn = SearchEntry::construct(user_entry).dn;
-
-            // Step 2: Search for groups containing the user
-            let group_search_filter = format!("(member={})", user_dn);
-            let (group_entries, _) = ldap
-                .search(
-                    "ou=groups,dc=myorg,dc=com",
-                    Scope::Subtree,
-                    &group_search_filter,
-                    vec!["cn"],
-                )
-                .await?
-                .success()?;
-
-            let groups: Vec<Vec<String>> = group_entries
-                .into_iter()
-                .map(|entry| {
-                    let search_entry = SearchEntry::construct(entry);
-                    search_entry.attrs.get("cn").unwrap_or(&Vec::new()).clone()
-                })
-                .collect();
-            groups
-            // for entry in group_entries {
-            //     let entry = SearchEntry::construct(entry);
-            //     println!(
-            //         "For user: {user} Group: {:?}",
-            //         entry.attrs.get("cn").unwrap_or(&Vec::new())
-            //     );
-            // }
-        } else {
-            println!("User not found");
-            return Err(OpenObserveError::LDAPError(LdapError::AddNoValues));
-        };
-
-        ldap.unbind().await?;
-        Ok(groups.into_iter().flatten().collect())
-    }
 }
 
 #[cfg(test)]
@@ -231,23 +202,31 @@ mod tests {
             "cn=admin,dc=zinclabs,dc=com".to_string(),
             "admin".to_string(),
             "ou=users,dc=zinclabs,dc=com".to_string(),
-            "(uid={id})".to_string(),
-            // "(&(objectClass=inetOrgPerson)(uid={id}))".to_string(),
+            "(&(objectClass=inetOrgPerson)(uid={id}))".to_string(),
+            "(&(objectClass=groupOfUniqueNames)(uniqueMember={id}))".to_string(),
+            "ou=teams,dc=zinclabs,dc=com".to_string(),
         );
 
         let (conn, mut ldap) = LdapConnAsync::new(&ldap_auth.url).await.unwrap();
         ldap3::drive!(conn);
 
         ldap_auth
-            .authenticate(ldap.clone(), "user3", "user3")
+            .authenticate(ldap.clone(), "", "")
             .await
             .expect("Authentication successful");
 
         let response = ldap_auth
-            .get_user_dn(ldap, "user3")
+            .get_user_dn(ldap.clone(), "user3")
             .await
             .expect("Failed to get user-dn");
         println!("response: {:?}", response);
+
+        let response = ldap_auth
+            .get_user_groups(ldap.clone(), &response)
+            .await
+            .unwrap();
+        println!("response: {:?}", response);
+        ldap.unbind().await.expect("Failed to unbind");
         assert!(false)
     }
 }
