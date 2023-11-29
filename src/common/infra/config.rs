@@ -192,6 +192,7 @@ pub struct Config {
     pub tcp: TCP,
     pub prom: Prometheus,
     pub profiling: Pyroscope,
+    pub ldap: LdapConfig,
 }
 
 #[derive(EnvConfig)]
@@ -215,6 +216,9 @@ pub struct Auth {
 
 #[derive(EnvConfig)]
 pub struct LdapConfig {
+    #[env_config(name = "ZO_LDAP_ENABLE", default = false)]
+    pub ldap_enable: bool,
+
     #[env_config(name = "ZO_LDAP_URL", default = "ldap://localhost:389")]
     pub url: String,
     #[env_config(name = "ZO_LDAP_BIND_DN", default = "cn=admin,dc=zinclabs,dc=com")]
@@ -706,6 +710,11 @@ pub fn init() -> Config {
         panic!("dynamo config error: {e}");
     }
 
+    // check ldap config
+    if let Err(e) = check_ldap_config(&mut cfg) {
+        panic!("ldap config error: {e}");
+    }
+
     cfg
 }
 
@@ -1020,6 +1029,25 @@ fn check_dynamo_config(cfg: &mut Config) -> Result<(), anyhow::Error> {
     cfg.dynamo.schema_table = format!("{}-schema", cfg.dynamo.prefix);
     cfg.dynamo.compact_table = format!("{}-compact", cfg.dynamo.prefix);
 
+    Ok(())
+}
+
+fn check_ldap_config(cfg: &mut Config) -> Result<(), anyhow::Error> {
+    fn ensure_not_empty(s: &str, name: &str) -> Result<(), anyhow::Error> {
+        if s.is_empty() {
+            return Err(anyhow::anyhow!("{} is empty", name));
+        }
+        Ok(())
+    }
+
+    if cfg.ldap.ldap_enable {
+        ensure_not_empty(&cfg.ldap.url, "ZO_LDAP_URL")?;
+        ensure_not_empty(&cfg.ldap.bind_dn, "ZO_LDAP_BIND_DN")?;
+        ensure_not_empty(&cfg.ldap.bind_password, "ZO_LDAP_BIND_PASSWORD")?;
+        ensure_not_empty(&cfg.ldap.users_base_dn, "ZO_LDAP_USERS_BASE_DN")?;
+        ensure_not_empty(&cfg.ldap.user_filter, "ZO_LDAP_USER_FILTER")?;
+        ensure_not_empty(&cfg.ldap.group_filter, "ZO_LDAP_GROUP_FILTER")?;
+    }
     Ok(())
 }
 
