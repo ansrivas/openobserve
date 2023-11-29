@@ -205,15 +205,13 @@ async fn validate_user_from_ldap(user_id: &str, user_password: &str) -> Result<b
 
     for group in ldap_user.groups {
         let hierarchy = group.split(",").collect::<Vec<_>>();
-
         let org = hierarchy[1].split("=").last().unwrap();
-
         let role = if group.contains("admin") {
             crate::common::meta::user::UserRole::Admin
         } else {
             crate::common::meta::user::UserRole::Member
         };
-        println!("group: {:?}", org);
+        log::info!("Orgs retrieved from the ldap server: {:?}", org);
 
         // Check if the user exists in the database
         let user_exists = db::user::check_user_exists_by_email(user_id).await;

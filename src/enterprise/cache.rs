@@ -34,12 +34,6 @@ impl Cache {
         self.inner.invalidate(&key).await;
     }
 
-    pub async fn invalidate_parent(&self, path: &Path) {
-        if let Some(parent) = path.parent() {
-            self.invalidate(parent).await;
-        }
-    }
-
     pub fn invalidate_all(&self) {
         debug!("cache: invalidate all");
         self.inner.invalidate_all();
