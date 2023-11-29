@@ -21,6 +21,7 @@ use crate::common::utils::{
     auth::{get_hash, is_root_user},
     base64,
 };
+use crate::enterprise::ldap::LdapAuthentication;
 use crate::service::{db, users};
 use actix_web::{
     dev::ServiceRequest,
@@ -31,6 +32,7 @@ use actix_web::{
 };
 
 use actix_web_httpauth::extractors::basic::BasicAuth;
+use ldap3::LdapConnAsync;
 
 pub async fn validator(
     req: ServiceRequest,
@@ -88,6 +90,11 @@ pub async fn validate_credentials(
     user_password: &str,
     path: &str,
 ) -> Result<bool, Error> {
+    let ldap_enabled = true;
+    if ldap_enabled {
+        log::warn!("LDAP authentication enabled/hardcoded");
+        return validate_user(user_id, user_password).await;
+    }
     let user;
     let mut path_columns = path.split('/').collect::<Vec<&str>>();
     if let Some(v) = path_columns.last() {
@@ -152,7 +159,8 @@ pub async fn validate_credentials(
     }
 }
 
-pub async fn validate_user(user_id: &str, user_password: &str) -> Result<bool, Error> {
+/// Valida the incoming user from the database, if other auth method isn't enabled.
+async fn validate_user_from_db(user_id: &str, user_password: &str) -> Result<bool, Error> {
     let db_user = db::user::get_db_user(user_id).await;
     match db_user {
         Ok(user) => {
@@ -164,6 +172,104 @@ pub async fn validate_user(user_id: &str, user_password: &str) -> Result<bool, E
             }
         }
         Err(_) => Err(ErrorForbidden("Not allowed")),
+    }
+}
+
+/// Validate the incoming user from the ldap, if ldap is enabled
+async fn validate_user_from_ldap(user_id: &str, user_password: &str) -> Result<bool, Error> {
+    //TODO(ansrivas): At a time only one method is supported for authentication.
+    // This is a temporary hack to support both LDAP and DB authentication.
+
+    // First try LDAP authentication
+    let ldap_auth = LdapAuthentication::new(
+        "ldap://localhost:389".to_string(),
+        "cn=admin,dc=zinclabs,dc=com".to_string(),
+        "admin".to_string(),
+        "ou=users,dc=zinclabs,dc=com".to_string(),
+        "(&(objectClass=inetOrgPerson)(uid={id}))".to_string(),
+        "(&(objectClass=groupOfUniqueNames)(uniqueMember={id}))".to_string(),
+        "ou=teams,dc=zinclabs,dc=com".to_string(),
+        Some("mail".to_string()),
+        Some("givenName".to_string()),
+        Some("sn".to_string()),
+    );
+
+    let (conn, mut ldap) = LdapConnAsync::new(&ldap_auth.url).await.unwrap();
+    ldap3::drive!(conn);
+
+    // Is this a valid LDAP user?
+    ldap_auth
+        .authenticate(ldap.clone(), user_id, user_password, true)
+        .await
+        .map_err(|e| {
+            log::warn!("LDAP authentication failed for user {} {}", user_id, e);
+            ErrorForbidden("Not allowed")
+        })?;
+
+    let ldap_user = ldap_auth
+        .get_user_with_groups(&mut ldap, user_id)
+        .await
+        .map_err(|e| {
+            log::warn!(
+                "LDAP authentication failed to fetch groups {} {}",
+                user_id,
+                e
+            );
+            ErrorForbidden("Not allowed")
+        })?;
+
+    for group in ldap_user.groups {
+        let hierarchy = group.split(",").collect::<Vec<_>>();
+
+        let org = hierarchy[1].split("=").last().unwrap();
+
+        let role = if group.contains("admin") {
+            crate::common::meta::user::UserRole::Admin
+        } else {
+            crate::common::meta::user::UserRole::Member
+        };
+        println!("group: {:?}", org);
+
+        // Check if the user exists in the database
+        let user_exists = db::user::check_user_exists_by_email(user_id).await;
+        if !user_exists {
+            log::info!("User does not exist in thedatabase");
+            log::warn!("Email is replaced using user_id, beware, in ldap.");
+            // create the user
+            let _ = users::post_user(
+                org,
+                crate::common::meta::user::UserRequest {
+                    // email: ldap_user.attributes.email.clone(),
+                    email: user_id.to_string(),
+                    password: "ldap+pass".to_owned(),
+                    role: role,
+                    first_name: ldap_user.attributes.firstname.clone(),
+                    last_name: ldap_user.attributes.lastname.clone(),
+                    is_ldap: true,
+                },
+            )
+            .await
+            .unwrap();
+        } else {
+            println!("User exists in the database, should have sync'd the org now");
+            // add the user to the organization
+            let _ = users::add_user_to_org(org, user_id, role, "root@example.com")
+                .await
+                .unwrap();
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+
+    ldap.unbind().await.expect("Failed to unbind");
+    Ok(true)
+}
+
+pub async fn validate_user(user_id: &str, user_password: &str) -> Result<bool, Error> {
+    let is_ldap_enabled = true;
+    if is_ldap_enabled {
+        validate_user_from_ldap(user_id, user_password).await
+    } else {
+        validate_user_from_db(user_id, user_password).await
     }
 }
 
@@ -326,6 +432,7 @@ mod tests {
                 role: crate::common::meta::user::UserRole::Root,
                 first_name: "root".to_owned(),
                 last_name: "".to_owned(),
+                is_ldap: false,
             },
         )
         .await;
@@ -337,6 +444,7 @@ mod tests {
                 role: crate::common::meta::user::UserRole::Member,
                 first_name: "root".to_owned(),
                 last_name: "".to_owned(),
+                is_ldap: false,
             },
         )
         .await;

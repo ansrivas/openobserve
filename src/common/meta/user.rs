@@ -27,6 +27,10 @@ pub struct UserRequest {
     pub password: String,
     #[serde(skip_serializing)]
     pub role: UserRole,
+
+    /// Is the user created via ldap flow.
+    #[serde(default)]
+    pub is_ldap: bool,
 }
 
 impl UserRequest {

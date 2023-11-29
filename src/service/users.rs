@@ -215,6 +215,7 @@ pub async fn add_user_to_org(
     initiator_id: &str,
 ) -> Result<HttpResponse, Error> {
     let existing_user = db::user::get_db_user(email).await;
+    log::info!("Existing user {:?}", existing_user);
     let root_user = ROOT_USER.clone();
     if existing_user.is_ok() {
         let mut db_user = existing_user.unwrap();
@@ -229,11 +230,15 @@ pub async fn add_user_to_org(
                 .unwrap()
                 .unwrap()
         };
+        log::info!("Initiating user {:?}", initiating_user);
+
         if initiating_user.role.eq(&UserRole::Root) || initiating_user.role.eq(&UserRole::Admin) {
             let token = generate_random_string(16);
             let rum_token = format!("rum{}", generate_random_string(16));
             let mut orgs = db_user.clone().organizations;
             let new_orgs = if orgs.is_empty() {
+                log::info!("Initiating user orgs empty{:?}", initiating_user);
+
                 vec![UserOrg {
                     name: local_org.to_string(),
                     token,
@@ -248,6 +253,8 @@ pub async fn add_user_to_org(
                     rum_token: Some(rum_token),
                     role,
                 });
+                log::info!("Initiating user orgs added{:?}", &orgs);
+
                 orgs
             };
             db_user.organizations = new_orgs;
@@ -449,6 +456,7 @@ mod tests {
                 role: crate::common::meta::user::UserRole::Admin,
                 first_name: "admin".to_owned(),
                 last_name: "".to_owned(),
+                is_ldap: false,
             },
         )
         .await;
@@ -466,6 +474,7 @@ mod tests {
                 role: crate::common::meta::user::UserRole::Admin,
                 first_name: "admin".to_owned(),
                 last_name: "".to_owned(),
+                is_ldap: false,
             },
         )
         .await;

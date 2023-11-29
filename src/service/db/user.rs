@@ -215,6 +215,23 @@ pub async fn cache() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+pub async fn check_user_exists_by_email(email: &str) -> bool {
+    let db = infra_db::get_db().await;
+    let key = "/user/";
+    let mut ret = db.list_values(key).await.unwrap();
+    ret.retain(|item| {
+        let user: DBUser = json::from_slice(item).unwrap();
+        user.email.eq(email)
+        // user.organizations
+        //     .first()
+        //     .as_ref()
+        //     .unwrap()
+        //     .role
+        //     .eq(&crate::common::meta::user::UserRole::Root)
+    });
+    !ret.is_empty()
+}
+
 pub async fn root_user_exists() -> bool {
     let db = infra_db::get_db().await;
     let key = "/user/";

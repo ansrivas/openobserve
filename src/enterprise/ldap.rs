@@ -128,10 +128,27 @@ impl LdapAuthentication {
             .clone();
         Ok(attribute)
     }
+
+    /// This method calls the `get_user` and `get_user_groups` methods
+    /// i.e. two calls to the ldap server, but ensures that the entire
+    /// user object is prepared and returned properly
+    pub async fn get_user_with_groups(
+        &self,
+        ldap: &mut ldap3::Ldap,
+        username: &str,
+    ) -> Result<LdapUser, OpenObserveError> {
+        let ldap_user = self.get_user(ldap, username).await?;
+        let groups = self.get_user_groups(ldap, &ldap_user.dn).await?;
+        Ok(LdapUser {
+            groups: groups,
+            ..ldap_user
+        })
+    }
+
     /// Find user dn from username
     pub async fn get_user(
         &self,
-        mut ldap: ldap3::Ldap,
+        ldap: &mut ldap3::Ldap,
         username: &str,
     ) -> Result<LdapUser, OpenObserveError> {
         let mut values = HashMap::new();
@@ -208,7 +225,7 @@ impl LdapAuthentication {
     /// Get all the groups of a given user
     pub async fn get_user_groups(
         &self,
-        mut ldap: ldap3::Ldap,
+        ldap: &mut ldap3::Ldap,
         user_dn: &str,
     ) -> Result<Vec<String>, OpenObserveError> {
         let mut values = HashMap::new();
@@ -267,16 +284,34 @@ impl LdapAuthentication {
         log::info!("LDAP authentication successful for {}", username);
         Ok(())
     }
+
+    /// Sync the user from LDAP to the database
+    /// This function will be called at login time
+    /// and also as a part of the cron job.
+    pub async fn synchronize_user(
+        &self,
+        mut ldap: ldap3::Ldap,
+        username: &str,
+    ) -> Result<(), OpenObserveError> {
+        // Get the user object from LDAP
+        // Synchronize the user object in the database
+        // Ensure the orgs and roles are properly synchronized and
+        // remove the orgs and roles which are not present in LDAP
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::meta;
-    use crate::service::users;
+    use crate::common::infra::db as infra_db;
+    use crate::common::meta::{self};
+    use crate::service::{db as service_db, users};
 
     #[tokio::test]
     async fn test_authentication() {
+        infra_db::create_table().await.unwrap();
+
         let ldap_auth = LdapAuthentication::new(
             "ldap://localhost:389".to_string(),
             "cn=admin,dc=zinclabs,dc=com".to_string(),
@@ -318,36 +353,66 @@ mod tests {
             .expect("Authentication successful");
 
         let ldap_user = ldap_auth
-            .get_user(ldap.clone(), "user3")
+            .get_user(&mut ldap, "user3")
             .await
             .expect("Failed to get user");
         println!("ldap_user: {:?}", ldap_user);
 
         let groups = ldap_auth
-            .get_user_groups(ldap.clone(), &ldap_user.dn)
+            .get_user_groups(&mut ldap, &ldap_user.dn)
             .await
             .unwrap();
 
         println!("groups: {:?}", groups);
 
         for group in groups {
-            let group = group.split(",").next().unwrap().split("=").last().unwrap();
-            println!("group: {:?}", group);
-            let _ = users::post_user(
-                group,
-                meta::user::UserRequest {
-                    email: format!("{}@zinclabs.com", group),
-                    password: "password".to_owned(),
-                    role: meta::user::UserRole::Admin,
-                    first_name: "admin".to_owned(),
-                    last_name: "".to_owned(),
-                },
-            )
-            .await
-            .unwrap();
+            let hierarchy = group.split(",").collect::<Vec<_>>();
+
+            let org = hierarchy[1].split("=").last().unwrap();
+
+            let role = if group.contains("admin") {
+                meta::user::UserRole::Admin
+            } else {
+                meta::user::UserRole::Member
+            };
+            println!("group: {:?}", org);
+
+            // Check if the user exists in the database
+            let user_exists =
+                service_db::user::check_user_exists_by_email(&ldap_user.attributes.email).await;
+            if !user_exists {
+                println!("User does not exist in the database");
+                // create the user
+                let _ = users::post_user(
+                    org,
+                    meta::user::UserRequest {
+                        email: ldap_user.attributes.email.clone(),
+                        password: "ldap+pass".to_owned(),
+                        role: role,
+                        first_name: ldap_user.attributes.firstname.clone(),
+                        last_name: ldap_user.attributes.lastname.clone(),
+                        is_ldap: true,
+                    },
+                )
+                .await
+                .unwrap();
+            } else {
+                println!("User exists in the database");
+                // add the user to the organization
+                let _ = users::add_user_to_org(
+                    org,
+                    &ldap_user.attributes.email,
+                    role,
+                    &ldap_user.attributes.email,
+                )
+                .await
+                .unwrap();
+            }
         }
 
         ldap.unbind().await.expect("Failed to unbind");
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
         assert!(false)
     }
 }

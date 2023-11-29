@@ -95,6 +95,8 @@ pub async fn organizations(credentials: BasicAuth) -> Result<HttpResponse, Error
             }
         }
     }
+
+    println!("USERS: {:?}", &USERS);
     for user in USERS.iter() {
         if !user.key().contains('/') {
             continue;
