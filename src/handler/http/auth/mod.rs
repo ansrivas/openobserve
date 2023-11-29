@@ -90,11 +90,11 @@ pub async fn validate_credentials(
     user_password: &str,
     path: &str,
 ) -> Result<bool, Error> {
-    let ldap_enabled = true;
-    if ldap_enabled {
-        log::warn!("LDAP authentication enabled/hardcoded");
+    if CONFIG.ldap.ldap_enable {
+        log::info!("LDAP authentication enabled");
         return validate_user(user_id, user_password).await;
     }
+
     let user;
     let mut path_columns = path.split('/').collect::<Vec<&str>>();
     if let Some(v) = path_columns.last() {
@@ -177,10 +177,6 @@ async fn validate_user_from_db(user_id: &str, user_password: &str) -> Result<boo
 
 /// Validate the incoming user from the ldap, if ldap is enabled
 async fn validate_user_from_ldap(user_id: &str, user_password: &str) -> Result<bool, Error> {
-    //TODO(ansrivas): At a time only one method is supported for authentication.
-    // This is a temporary hack to support both LDAP and DB authentication.
-
-    // First try LDAP authentication
     let ldap_auth = LdapAuthentication::from_config(&CONFIG.ldap);
 
     let (conn, mut ldap) = LdapConnAsync::new(&ldap_auth.url).await.unwrap();
@@ -253,8 +249,7 @@ async fn validate_user_from_ldap(user_id: &str, user_password: &str) -> Result<b
 }
 
 pub async fn validate_user(user_id: &str, user_password: &str) -> Result<bool, Error> {
-    let is_ldap_enabled = true;
-    if is_ldap_enabled {
+    if CONFIG.ldap.ldap_enable {
         validate_user_from_ldap(user_id, user_password).await
     } else {
         validate_user_from_db(user_id, user_password).await
