@@ -241,7 +241,7 @@ async fn validate_user_from_ldap(user_id: &str, user_password: &str) -> Result<b
                 .await
                 .unwrap();
         }
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
     ldap.unbind().await.expect("Failed to unbind");
