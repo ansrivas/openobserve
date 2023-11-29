@@ -214,6 +214,41 @@ pub struct Auth {
 }
 
 #[derive(EnvConfig)]
+pub struct LdapConfig {
+    #[env_config(name = "ZO_LDAP_URL", default = "ldap://localhost:389")]
+    pub url: String,
+    #[env_config(name = "ZO_LDAP_BIND_DN", default = "cn=admin,dc=zinclabs,dc=com")]
+    pub bind_dn: String,
+    #[env_config(name = "ZO_LDAP_BIND_PASSWORD", default = "admin")]
+    pub bind_password: String,
+    #[env_config(
+        name = "ZO_LDAP_USERS_BASE_DN",
+        default = "ou=users,dc=zinclabs,dc=com"
+    )]
+    pub users_base_dn: String,
+    #[env_config(
+        name = "ZO_LDAP_USER_FILTER",
+        default = "(&(objectClass=inetOrgPerson)(uid={id}))"
+    )]
+    pub user_filter: String,
+    #[env_config(
+        name = "ZO_LDAP_GROUP_FILTER",
+        default = "(&(objectClass=groupOfUniqueNames)(uniqueMember={id}))"
+    )]
+    pub group_filter: String,
+    #[env_config(
+        name = "ZO_LDAP_GROUP_SEARCH_BASE",
+        default = "ou=teams,dc=zinclabs,dc=com"
+    )]
+    pub group_search_base: String,
+    #[env_config(name = "ZO_LDAP_EMAIL_ATTRIBUTE", default = "mail")]
+    pub email_attribute: Option<String>,
+    #[env_config(name = "ZO_LDAP_FIRST_NAME_ATTRIBUTE", default = "givenName")]
+    pub first_name_attribute: Option<String>,
+    #[env_config(name = "ZO_LDAP_LAST_NAME_ATTRIBUTE", default = "sn")]
+    pub last_name_attribute: Option<String>,
+}
+#[derive(EnvConfig)]
 pub struct Http {
     #[env_config(name = "ZO_HTTP_PORT", default = 5080)]
     pub port: u16,

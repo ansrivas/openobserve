@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::common::infra::errors::{Error as OpenObserveError, LdapCustomError};
+use crate::common::infra::{
+    config::LdapConfig,
+    errors::{Error as OpenObserveError, LdapCustomError},
+};
 use ldap3::{result::Result as LdapResult, LdapConnAsync, LdapError, Scope, SearchEntry};
 use leon::Template;
 use serde::{Deserialize, Serialize};
@@ -56,6 +59,22 @@ pub struct LdapUser {
 }
 
 impl LdapAuthentication {
+    pub fn from_config(config: &LdapConfig) -> Self {
+        Self {
+            url: config.url.clone(),
+            bind_dn: config.bind_dn.clone(),
+            bind_password: config.bind_password.clone(),
+            user_search_base: config.users_base_dn.clone(),
+            user_search_filter: config.user_filter.clone(),
+            group_search_filter: config.group_filter.clone(),
+            group_search_base: config.group_search_base.clone(),
+            email_attribute: config.email_attribute.clone(),
+            first_name_attribute: config.first_name_attribute.clone(),
+            last_name_attribute: config.last_name_attribute.clone(),
+            ..Default::default()
+        }
+    }
+
     pub fn new(
         url: String,
 
