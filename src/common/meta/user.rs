@@ -209,6 +209,9 @@ pub struct UserResponse {
     #[serde(default)]
     pub last_name: String,
     pub role: UserRole,
+
+    #[serde(default)]
+    pub is_ldap: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]

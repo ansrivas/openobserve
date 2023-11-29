@@ -215,7 +215,6 @@ pub async fn add_user_to_org(
     initiator_id: &str,
 ) -> Result<HttpResponse, Error> {
     let existing_user = db::user::get_db_user(email).await;
-    log::info!("Existing user {:?}", existing_user);
     let root_user = ROOT_USER.clone();
     if existing_user.is_ok() {
         let mut db_user = existing_user.unwrap();
@@ -230,15 +229,11 @@ pub async fn add_user_to_org(
                 .unwrap()
                 .unwrap()
         };
-        log::info!("Initiating user {:?}", initiating_user);
-
         if initiating_user.role.eq(&UserRole::Root) || initiating_user.role.eq(&UserRole::Admin) {
             let token = generate_random_string(16);
             let rum_token = format!("rum{}", generate_random_string(16));
             let mut orgs = db_user.clone().organizations;
             let new_orgs = if orgs.is_empty() {
-                log::info!("Initiating user orgs empty{:?}", initiating_user);
-
                 vec![UserOrg {
                     name: local_org.to_string(),
                     token,
@@ -253,8 +248,6 @@ pub async fn add_user_to_org(
                     rum_token: Some(rum_token),
                     role,
                 });
-                log::info!("Initiating user orgs added{:?}", &orgs);
-
                 orgs
             };
             db_user.organizations = new_orgs;
@@ -320,11 +313,13 @@ pub async fn list_users(org_id: &str) -> Result<HttpResponse, Error> {
     let mut user_list: Vec<UserResponse> = vec![];
     for user in USERS.iter() {
         if user.key().starts_with(&format!("{org_id}/")) {
+            let user_val = user.value();
             user_list.push(UserResponse {
-                email: user.value().email.clone(),
-                role: user.value().role.clone(),
-                first_name: user.value().first_name.clone(),
-                last_name: user.value().last_name.clone(),
+                email: user_val.email.clone(),
+                role: user_val.role.clone(),
+                first_name: user_val.first_name.clone(),
+                last_name: user_val.last_name.clone(),
+                is_ldap: user_val.is_ldap,
             })
         }
     }

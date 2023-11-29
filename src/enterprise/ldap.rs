@@ -59,6 +59,7 @@ pub struct LdapUser {
 }
 
 impl LdapAuthentication {
+    /// Instantiate the class using LdapConfig
     pub fn from_config(config: &LdapConfig) -> Self {
         Self {
             url: config.url.clone(),
@@ -75,6 +76,7 @@ impl LdapAuthentication {
         }
     }
 
+    /// Instantiate the class using the parameters
     pub fn new(
         url: String,
 
@@ -129,6 +131,7 @@ impl LdapAuthentication {
         template.render(values).map_err(|e| e.into())
     }
 
+    /// Retrieve the attribute from a search entry.
     fn get_attribute_from_entry(
         &self,
         entry: &SearchEntry,
@@ -146,6 +149,13 @@ impl LdapAuthentication {
             ))?
             .clone();
         Ok(attribute)
+    }
+
+    /// Retrieve the attribute from a search entry, if not present, return a string format.
+    /// If you want to handle the errors separately look into [get_attribute_from_entry]
+    fn get_attribute_from_entry_or_default(&self, entry: &SearchEntry, attribute: &str) -> String {
+        self.get_attribute_from_entry(entry, attribute)
+            .unwrap_or_default()
     }
 
     /// This method calls the `get_user` and `get_user_groups` methods
@@ -174,8 +184,8 @@ impl LdapAuthentication {
         values.insert("id", username);
         let user_search_filter = self.parse_templates(&self.user_search_filter, &values)?;
 
-        println!("Searching for user with filter {:?}", &user_search_filter);
-        println!("Searching in base {:?}", &self.user_search_base);
+        log::info!("Searching for user with filter {:?}", &user_search_filter);
+        log::info!("Searching in base {:?}", &self.user_search_base);
 
         let user_attributes = vec!["*"];
         let (user_entries, _) = ldap
@@ -218,24 +228,18 @@ impl LdapAuthentication {
             username: username.to_string(),
             groups: vec![],
             attributes: LdapUserAttributes {
-                email: self
-                    .get_attribute_from_entry(&user_entry, &email_attribute)
-                    .unwrap_or_default(),
-                firstname: self
-                    .get_attribute_from_entry(
-                        &user_entry,
-                        &self
-                            .first_name_attribute
-                            .clone()
-                            .unwrap_or("givenName".into()),
-                    )
-                    .unwrap_or_default(),
-                lastname: self
-                    .get_attribute_from_entry(
-                        &user_entry,
-                        &self.last_name_attribute.clone().unwrap_or("sn".into()),
-                    )
-                    .unwrap_or_default(),
+                email: self.get_attribute_from_entry_or_default(&user_entry, &email_attribute),
+                firstname: self.get_attribute_from_entry_or_default(
+                    &user_entry,
+                    &self
+                        .first_name_attribute
+                        .clone()
+                        .unwrap_or("givenName".into()),
+                ),
+                lastname: self.get_attribute_from_entry_or_default(
+                    &user_entry,
+                    &self.last_name_attribute.clone().unwrap_or("sn".into()),
+                ),
             },
         };
         Ok(ldap_user)
@@ -251,11 +255,11 @@ impl LdapAuthentication {
         values.insert("id", user_dn);
         let group_search_filter = self.parse_templates(&self.group_search_filter, &values)?;
 
-        println!(
+        log::info!(
             "Searching for groups with filter {:?}",
             &group_search_filter
         );
-        println!("Searching in base {:?}", &self.group_search_base);
+        log::info!("Searching in base {:?}", &self.group_search_base);
 
         let (group_entries, _) = ldap
             .search(
@@ -352,7 +356,7 @@ mod tests {
         let is_authenticated = ldap_auth
             .authenticate(ldap.clone(), user, pass, false)
             .await;
-        println!(
+        log::info!(
             "is_authenticated invalid pass: {:?}",
             is_authenticated.is_ok()
         );
@@ -375,14 +379,14 @@ mod tests {
             .get_user(&mut ldap, "user3")
             .await
             .expect("Failed to get user");
-        println!("ldap_user: {:?}", ldap_user);
+        log::info!("ldap_user: {:?}", ldap_user);
 
         let groups = ldap_auth
             .get_user_groups(&mut ldap, &ldap_user.dn)
             .await
             .unwrap();
 
-        println!("groups: {:?}", groups);
+        log::info!("groups: {:?}", groups);
 
         for group in groups {
             let hierarchy = group.split(",").collect::<Vec<_>>();
@@ -394,13 +398,13 @@ mod tests {
             } else {
                 meta::user::UserRole::Member
             };
-            println!("group: {:?}", org);
+            log::info!("group: {:?}", org);
 
             // Check if the user exists in the database
             let user_exists =
                 service_db::user::check_user_exists_by_email(&ldap_user.attributes.email).await;
             if !user_exists {
-                println!("User does not exist in the database");
+                log::info!("User does not exist in the database");
                 // create the user
                 let _ = users::post_user(
                     org,
@@ -416,7 +420,7 @@ mod tests {
                 .await
                 .unwrap();
             } else {
-                println!("User exists in the database");
+                log::info!("User exists in the database");
                 // add the user to the organization
                 let _ = users::add_user_to_org(
                     org,
@@ -430,7 +434,7 @@ mod tests {
         }
 
         ldap.unbind().await.expect("Failed to unbind");
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         assert!(false)
     }

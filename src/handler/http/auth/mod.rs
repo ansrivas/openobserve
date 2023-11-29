@@ -181,18 +181,7 @@ async fn validate_user_from_ldap(user_id: &str, user_password: &str) -> Result<b
     // This is a temporary hack to support both LDAP and DB authentication.
 
     // First try LDAP authentication
-    let ldap_auth = LdapAuthentication::new(
-        "ldap://localhost:389".to_string(),
-        "cn=admin,dc=zinclabs,dc=com".to_string(),
-        "admin".to_string(),
-        "ou=users,dc=zinclabs,dc=com".to_string(),
-        "(&(objectClass=inetOrgPerson)(uid={id}))".to_string(),
-        "(&(objectClass=groupOfUniqueNames)(uniqueMember={id}))".to_string(),
-        "ou=teams,dc=zinclabs,dc=com".to_string(),
-        Some("mail".to_string()),
-        Some("givenName".to_string()),
-        Some("sn".to_string()),
-    );
+    let ldap_auth = LdapAuthentication::from_config(&CONFIG.ldap);
 
     let (conn, mut ldap) = LdapConnAsync::new(&ldap_auth.url).await.unwrap();
     ldap3::drive!(conn);
@@ -251,8 +240,7 @@ async fn validate_user_from_ldap(user_id: &str, user_password: &str) -> Result<b
             .await
             .unwrap();
         } else {
-            println!("User exists in the database, should have sync'd the org now");
-            // add the user to the organization
+            log::info!("User exists in the database, should have sync'd the org now");
             let _ = users::add_user_to_org(org, user_id, role, "root@example.com")
                 .await
                 .unwrap();
